@@ -1,0 +1,13 @@
+{
+  "files.eol": "\n",
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[python]": { "editor.defaultFormatter": "ms-python.python" },
+  "python.formatting.provider": "black",
+  "eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact"],
+  "eslint.codeActionsOnSave.mode": "all",
+  "editor.codeActionsOnSave": { "source.fixAll.eslint": "explicit" },
+  "python.analysis.typeCheckingMode": "basic",
+  "terminal.integrated.defaultProfile.osx": "zsh",
+  "makefile.configureOnOpen": false
+}

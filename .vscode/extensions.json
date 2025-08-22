@@ -1,0 +1,13 @@
+{
+  "recommendations": [
+    "MS-CEINTL.vscode-language-pack-ru",
+    "ms-vscode-remote.remote-ssh",
+    "github.vscode-pull-request-github",
+    "ms-azuretools.vscode-docker",
+    "ms-python.python",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "editorconfig.editorconfig",
+    "ms-vscode.makefile-tools"
+  ]
+}
