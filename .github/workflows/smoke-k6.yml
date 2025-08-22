@@ -1,0 +1,29 @@
+name: Smoke k6
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "*/30 * * * *"
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      API_URL: ${{ secrets.API_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write k6 script
+        run: |
+          cat > smoke.js <<'JS'
+          import http from 'k6/http';
+          import { check, sleep } from 'k6';
+          export default function () {
+            let h = http.get(`${__ENV.API_URL}/api/health`);
+            check(h, { 'health 200': r=>r.status==200, 'ok true': r=>r.json('ok')===true });
+            let enq = http.post(`${__ENV.API_URL}/api/admin/autopilot/enqueue`,
+              JSON.stringify({task:'noop',args:{},kwargs:{}}),
+              { headers: { 'Content-Type': 'application/json' } });
+            check(enq, { 'enqueue 200': r=>r.status==200 });
+            sleep(1);
+          }
+          JS
+      - uses: grafana/k6-action@v0.3.1
+        with: { filename: smoke.js }

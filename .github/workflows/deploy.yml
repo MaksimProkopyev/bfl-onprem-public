@@ -1,0 +1,29 @@
+name: Deploy BFL Autopilot
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: {}
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      VM_HOST: ${{ secrets.VM_HOST }}
+      VM_USER: ${{ secrets.VM_USER }}
+      DEST:    ${{ secrets.DEST_DIR || '/opt/bfl' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      - name: Known hosts
+        run: mkdir -p ~/.ssh && ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
+      - name: Rsync repo to VM
+        run: |
+          EXC="--exclude .git --exclude node_modules --exclude dist --exclude .venv --exclude __pycache__ --exclude .idea --exclude .vscode"
+          rsync -az --delete $EXC ./ "${VM_USER}@${VM_HOST}:${DEST}/"
+      - name: Compose up
+        run: ssh "${VM_USER}@${VM_HOST}" "cd '${DEST}' && sudo docker compose pull && sudo docker compose up -d --build"
+      - name: Healthcheck
+        run: ssh "${VM_USER}@${VM_HOST}" "curl -sS 127.0.0.1:8000/api/health | jq -e '.ok==true'"
+      - name: Enqueue noop
+        run: ssh "${VM_USER}@${VM_HOST}" "cd '${DEST}' && API_URL=http://127.0.0.1:8000 ./tools/autopilot_cli.sh noop | jq -e ."
