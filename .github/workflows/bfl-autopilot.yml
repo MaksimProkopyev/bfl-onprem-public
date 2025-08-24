@@ -1,0 +1,70 @@
+name: BFL Autopilot Deploy
+on:
+  push:
+    branches: [ "**" ]
+    paths-ignore: ["**.md","**/*.png","**/*.jpg"]
+  workflow_dispatch: {}
+concurrency:
+  group: bfl-onprem-deploy
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/bfl_ed25519
+          chmod 600 ~/.ssh/bfl_ed25519
+          ssh-keyscan -p "${{ secrets.SSH_PORT }}" "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Ensure rsync on VM
+        run: |
+          ssh -i ~/.ssh/bfl_ed25519 -p "${{ secrets.SSH_PORT }}" ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} \
+            "sudo apt-get update && sudo apt-get install -y rsync"
+
+      - name: Rsync sources to VM
+        run: |
+          rsync -az --delete -e "ssh -i ~/.ssh/bfl_ed25519 -p ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=yes" \
+            ./ ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}:/opt/bfl/
+
+      - name: Ensure Node.js 20 on VM
+        run: |
+          ssh -i ~/.ssh/bfl_ed25519 -p "${{ secrets.SSH_PORT }}" ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} '
+            set -euo pipefail
+            if ! command -v node >/dev/null 2>&1; then
+              curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+              sudo apt-get install -y nodejs
+            fi
+            node -v && npm -v
+          '
+
+      - name: Build UI (if present)
+        run: |
+          ssh -i ~/.ssh/bfl_ed25519 -p "${{ secrets.SSH_PORT }}" ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} '
+            set -euo pipefail
+            if [ -f /opt/bfl/services/ui/package.json ]; then
+              cd /opt/bfl/services/ui && npm ci && npm run build
+            fi
+          '
+
+      - name: Compose up + rebuild
+        run: |
+          ssh -i ~/.ssh/bfl_ed25519 -p "${{ secrets.SSH_PORT }}" ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} "
+            set -euo pipefail
+            cd /opt/bfl
+            docker compose pull || true
+            docker compose up -d --build
+            docker compose ps
+          "
+
+      - name: Smoke checks
+        run: |
+          ssh -i ~/.ssh/bfl_ed25519 -p "${{ secrets.SSH_PORT }}" ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} '
+            set -euo pipefail
+            curl -fsS http://127.0.0.1:8000/api/health | jq .
+            curl -fsS http://127.0.0.1:8000/metrics | grep "^bfl_autopilot_" || echo "no bfl_autopilot_ yet"
+          "
