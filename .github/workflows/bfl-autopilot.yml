@@ -7,7 +7,6 @@ on:
 concurrency:
   group: bfl-onprem-deploy
   cancel-in-progress: true
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -33,7 +32,6 @@ jobs:
             set -euo pipefail
             sudo apt-get update
             sudo apt-get install -y ca-certificates curl gnupg jq rsync git make
-            # Docker engine (если нет)
             if ! command -v docker >/dev/null 2>&1; then
               install -m0755 -d /etc/apt/keyrings
               curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
@@ -43,15 +41,9 @@ jobs:
               sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
               sudo usermod -aG docker $USER || true
             fi
-            # Compose plugin (если вдруг нет)
             docker compose version >/dev/null 2>&1 || sudo apt-get install -y docker-compose-plugin
-            # Node.js/npm (fallback, без NodeSource при проблемах сети)
-            if ! command -v node >/dev/null 2>&1; then
-              sudo apt-get install -y nodejs npm || true
-            fi
-            # Рабочая директория
+            command -v node >/dev/null 2>&1 || sudo apt-get install -y nodejs npm || true
             sudo mkdir -p /opt/bfl && sudo chown -R $USER:$USER /opt/bfl
-            # Небольшой swap на случай сборки UI
             if ! swapon --show | grep -q swapfile-ci; then
               sudo fallocate -l 2G /swapfile-ci || true
               sudo chmod 600 /swapfile-ci || true
@@ -60,10 +52,24 @@ jobs:
             fi
           "'
 
-      - name: Rsync sources to VM
+      - name: Clean caches on VM (safe)
         run: |
-          rsync -az --delete -e "ssh -i ~/.ssh/bfl_ed25519 -p ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=yes" \
-            ./ ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}:/opt/bfl/
+          ssh -i ~/.ssh/bfl_ed25519 -p "${{ secrets.SSH_PORT }}" ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} 'bash -lc "
+            set -euo pipefail
+            rm -rf /opt/bfl/**/.pnpm-store /opt/bfl/**/node_modules /opt/bfl/**/dist /opt/bfl/**/build 2>/dev/null || true
+          "'
+
+      - name: Rsync sources to VM (delete-excluded + force)
+        run: |
+          RSYNC_SSH="ssh -i ~/.ssh/bfl_ed25519 -p ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=yes"
+          rsync -az --delete --delete-excluded --force \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude 'node_modules' \
+            --exclude '.pnpm-store' \
+            --exclude 'dist' \
+            --exclude 'build' \
+            -e "$RSYNC_SSH" ./ ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}:/opt/bfl/
 
       - name: Build UI (if present; best-effort)
         run: |
