@@ -1,13 +1,17 @@
-version: "3.9"
 services:
   api:
     build:
       context: .
       dockerfile: services/api/Dockerfile
+    container_name: bfl-api
+    working_dir: /app
     ports:
       - "8000:8000"
-    environment:
-      PYTHONUNBUFFERED: "1"
-    restart: unless-stopped
     volumes:
-      - ./services/ui/dist:/app/services/ui/dist:ro
+      - ./services/ui/dist:/app/ui/dist:ro
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server","--save","","--appendonly","no"]
+    restart: unless-stopped
