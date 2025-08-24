@@ -83,6 +83,19 @@ jobs:
           "'
 
       - name: Compose up + rebuild
+      - name: Free port 8000 before compose
+        run: |
+          ssh -i ~/.ssh/bfl_ed25519 -p "${{ secrets.SSH_PORT }}" ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} 'bash -lc "
+            set -euo pipefail
+            echo == BEFORE ==; (ss -ltnp | grep :8000 || true)
+            IDS=$(docker ps --format '\''{{.ID}} {{.Ports}}'\'' | awk '\''$0 ~ /:8000->/ {print $1}'\'')
+            [ -n \"${IDS:-}\" ] && docker stop $IDS || true
+            IDS_ALL=$(docker ps -a --format '\''{{.ID}} {{.Ports}}'\'' | awk '\''$0 ~ /:8000->/ {print $1}'\'')
+            [ -n \"${IDS_ALL:-}\" ] && docker rm -f $IDS_ALL || true
+            command -v fuser >/dev/null 2>&1 && sudo fuser -k 8000/tcp || true
+            echo == AFTER ==; (ss -ltnp | grep :8000 || true)
+          "'
+      - name: Compose up + rebuild
         run: |
           ssh -i ~/.ssh/bfl_ed25519 -p "${{ secrets.SSH_PORT }}" ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} 'bash -lc "
             set -euo pipefail
