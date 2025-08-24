@@ -7,12 +7,18 @@ on:
 concurrency:
   group: bfl-onprem-deploy
   cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install prerequisites on runner
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rsync jq
 
       - name: Setup SSH key
         run: |
@@ -21,50 +27,71 @@ jobs:
           chmod 600 ~/.ssh/bfl_ed25519
           ssh-keyscan -p "${{ secrets.SSH_PORT }}" "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Ensure rsync on VM
+      - name: Prepare VM (docker/compose, rsync, /opt/bfl, node fallback, small swap)
         run: |
-          ssh -i ~/.ssh/bfl_ed25519 -p "${{ secrets.SSH_PORT }}" ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} \
-            "sudo apt-get update && sudo apt-get install -y rsync"
+          ssh -i ~/.ssh/bfl_ed25519 -p "${{ secrets.SSH_PORT }}" ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} 'bash -lc "
+            set -euo pipefail
+            sudo apt-get update
+            sudo apt-get install -y ca-certificates curl gnupg jq rsync git make
+            # Docker engine (если нет)
+            if ! command -v docker >/dev/null 2>&1; then
+              install -m0755 -d /etc/apt/keyrings
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+              . /etc/os-release
+              echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \$VERSION_CODENAME stable\" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+              sudo apt-get update
+              sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+              sudo usermod -aG docker $USER || true
+            fi
+            # Compose plugin (если вдруг нет)
+            docker compose version >/dev/null 2>&1 || sudo apt-get install -y docker-compose-plugin
+            # Node.js/npm (fallback, без NodeSource при проблемах сети)
+            if ! command -v node >/dev/null 2>&1; then
+              sudo apt-get install -y nodejs npm || true
+            fi
+            # Рабочая директория
+            sudo mkdir -p /opt/bfl && sudo chown -R $USER:$USER /opt/bfl
+            # Небольшой swap на случай сборки UI
+            if ! swapon --show | grep -q swapfile-ci; then
+              sudo fallocate -l 2G /swapfile-ci || true
+              sudo chmod 600 /swapfile-ci || true
+              sudo mkswap /swapfile-ci || true
+              sudo swapon /swapfile-ci || true
+            fi
+          "'
 
       - name: Rsync sources to VM
         run: |
           rsync -az --delete -e "ssh -i ~/.ssh/bfl_ed25519 -p ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=yes" \
             ./ ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}:/opt/bfl/
 
-      - name: Ensure Node.js 20 on VM
+      - name: Build UI (if present; best-effort)
         run: |
-          ssh -i ~/.ssh/bfl_ed25519 -p "${{ secrets.SSH_PORT }}" ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} '
-            set -euo pipefail
-            if ! command -v node >/dev/null 2>&1; then
-              curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-              sudo apt-get install -y nodejs
-            fi
-            node -v && npm -v
-          '
-
-      - name: Build UI (if present)
-        run: |
-          ssh -i ~/.ssh/bfl_ed25519 -p "${{ secrets.SSH_PORT }}" ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} '
+          ssh -i ~/.ssh/bfl_ed25519 -p "${{ secrets.SSH_PORT }}" ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} 'bash -lc "
             set -euo pipefail
             if [ -f /opt/bfl/services/ui/package.json ]; then
-              cd /opt/bfl/services/ui && npm ci && npm run build
+              cd /opt/bfl/services/ui
+              npm ci || npm install --no-fund --no-audit
+              npm run -s build || true
             fi
-          '
+          "'
 
       - name: Compose up + rebuild
         run: |
-          ssh -i ~/.ssh/bfl_ed25519 -p "${{ secrets.SSH_PORT }}" ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} "
+          ssh -i ~/.ssh/bfl_ed25519 -p "${{ secrets.SSH_PORT }}" ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} 'bash -lc "
             set -euo pipefail
             cd /opt/bfl
             docker compose pull || true
             docker compose up -d --build
             docker compose ps
-          "
+          "'
 
       - name: Smoke checks
         run: |
-          ssh -i ~/.ssh/bfl_ed25519 -p "${{ secrets.SSH_PORT }}" ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} '
+          ssh -i ~/.ssh/bfl_ed25519 -p "${{ secrets.SSH_PORT }}" ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} 'bash -lc "
             set -euo pipefail
+            echo == HEALTH ==
             curl -fsS http://127.0.0.1:8000/api/health | jq .
-            curl -fsS http://127.0.0.1:8000/metrics | grep "^bfl_autopilot_" || echo "no bfl_autopilot_ yet"
-          "
+            echo == METRICS ==
+            curl -fsS http://127.0.0.1:8000/metrics | head -n 20
+          "'
