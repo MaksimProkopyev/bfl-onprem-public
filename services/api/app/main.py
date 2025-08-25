@@ -16,6 +16,11 @@ ASSETS_DIR = os.path.join(UI_ROOT, "assets")
 if os.path.isdir(ASSETS_DIR):
     app.mount("/autopilot/assets", StaticFiles(directory=ASSETS_DIR), name="autopilot_assets")
 
+from fastapi import Request
+@app.api_route("/autopilot", methods=["GET","HEAD"], include_in_schema=False)
+async def _autopilot_root(request: Request):
+    return RedirectResponse(url="/autopilot/", status_code=302)
+
 @app.get("/api/health")
 def health():
     health_ctr.inc()
@@ -34,3 +39,15 @@ def spa(path: str = ""):
     if os.path.isfile(index_path):
         return FileResponse(index_path)
     return JSONResponse({"detail": "UI build not found"}, status_code=404)
+
+# ==== BFL simple login gate (/autopilot) ====
+try:
+    from .auth import router as _auth_router
+    from .auth import AuthGateMiddleware as _AuthGateMiddleware
+    app.include_router(_auth_router)
+    app.add_middleware(_AuthGateMiddleware)
+except Exception as _e:
+    # не валим приложение, просто логируем
+    import sys
+    print(f"[bfl-auth] disabled: {_e}", file=sys.stderr)
+# ============================================
