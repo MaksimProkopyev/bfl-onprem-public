@@ -61,12 +61,20 @@ grep -Rns -E 'RedirectResponse\([^)]*status_code\s*=\s*303' services/api/app/mid
 ( grep -Rns -E 'def\s+get_limiter' services/api/app/ratelimit.py >/dev/null && \
   grep -Rns -E 'redis(\.asyncio)?' services/api/app/ratelimit.py >/dev/null ) \
 if ; then
+if   ok "Rate limit (Redis)"; then
   ok "Rate limit (Redis)"
 else
   bad "Rate limit (Redis)"
 fi
+else
+  bad "Rate limit (Redis)"
+fi
 if ( grep -Rns -E "async def login" services/api/app/auth.py >/dev/null; then
+if   ok "Rate limit hook in login"; then
   ok "Rate limit hook in login"
+else
+  bad "Rate limit hook in login"
+fi
 else
   bad "Rate limit hook in login"
 fi
