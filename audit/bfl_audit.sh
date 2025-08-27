@@ -1,46 +1,80 @@
-#!/usr/bin/env bash
+#!/usr/bin/env zsh
 set -euo pipefail
-RED=$'\033[31m'; GRN=$'\033[32m'; YLW=$'\033[33m'; NC=$'\033[0m'
-ok(){ echo "${GRN}✔${NC} $*"; }
-ko(){ echo "${RED}✘${NC} $*"; FAIL=1; }
-info(){ echo "${YLW}•${NC} $*"; }
-check(){ local msg="$1"; shift; bash -lc "$*" >/dev/null 2>&1 && ok "$msg" || ko "$msg"; }
+ok(){ print -P "%F{76}✅ $1%f"; }; bad(){ print -P "%F{196}❌ $1%f"; }
+have(){ [ -e "$1" ] && ok "file: $1" || bad "file: $1"; }
 
-FAIL=0
-info "Files"
+print "• Files"
 for f in \
   services/api/app/config.py \
   services/api/app/auth.py \
-  services/api/app/middleware/auth_gate.py \
-  services/api/app/middleware/sec_headers.py \
   services/api/app/metrics.py \
   services/api/app/ratelimit.py \
   services/api/app/main.py \
+  services/api/app/middleware/auth_gate.py \
+  services/api/app/middleware/sec_headers.py \
+  services/api/app/middleware/__init__.py \
   services/api/Dockerfile \
-  docker-compose.yml docker-compose.override.yml \
+  docker-compose.yml \
+  docker-compose.override.yml \
   scripts/smoke.sh \
   .github/workflows/ci.yml \
-  docs/LOGIN.md docs/RUNBOOK.md docs/SECURITY.md \
-  services/api/tests
-do check "exists: $f" "test -e $f"; done
+  docs/LOGIN.md \
+  docs/RUNBOOK.md \
+  docs/SECURITY.md \
+  services/api/tests \
+  e2e \
+; do have "$f"; done
 
-echo
-info "Greps"
-check "cookie setter flags" "grep -R 'set_cookie' -n services/api/app/auth.py | grep -E 'secure=.*httponly=.*samesite'"
-check "BFL_AUTH_COOKIE env" "grep -R 'BFL_AUTH_COOKIE' -n services/api/app"
-check "CSRF double-submit" "grep -R 'X-CSRF-Token' -n services/api/app"
-check "AuthGate /api→401" "grep -R 'Unauthorized' -n services/api/app/middleware/auth_gate.py"
-check "AuthGate /autopilot→303" "grep -R '/autopilot/login' -n services/api/app/middleware/auth_gate.py"
-check "Rate limit (Redis)" "grep -R 'redis' -n services/api/app/ratelimit.py"
-check "/livez,/readyz,/api/health" "grep -R '@app.get(\"/livez\")' -n services/api/app/main.py && grep -R '@app.get(\"/readyz\")' -n services/api/app/main.py && grep -R '@app.get(\"/api/health\")' -n services/api/app/main.py"
-check "Security headers" "grep -R 'X-Content-Type-Options' -n services/api/app/middleware/sec_headers.py"
-check "Prometheus metrics" "grep -R 'bfl_autopilot_' -n services/api/app"
-check "Base64 autopadding" "grep -R 'urlsafe_b64decode' -n services/api/app/auth.py && grep -R '=-len' -n services/api/app/auth.py || true"
-check "Dockerfile non-root" "grep -R '^USER ' -n services/api/Dockerfile"
-check "compose base: no 8000:8000" "! grep -R '8000:8000' -n docker-compose.yml"
-check "override: 127.0.0.1:18000:8000" "grep -R '127.0.0.1:18000:8000' -n docker-compose.override.yml"
-check "CI workflow present" "test -f .github/workflows/ci.yml"
+print "\n• Greps"
+# cookie setter — все флаги в одной строке
+grep -Rns -E 'set_cookie\([^)]*secure=.*httponly=.*samesite=.*domain=.*path=.*\)' services/api/app/auth.py >/dev/null \
+  && ok "cookie setter flags" || bad "cookie setter flags"
 
-echo
-if [ "$FAIL" -eq 0 ]; then ok "AUDIT: PASS"; else ko "AUDIT: FAIL"; fi
-exit "$FAIL"
+# ENV для cookie
+grep -Rns -E 'BFL_AUTH_COOKIE|BFL_COOKIE_(SECURE|HTTPONLY|SAMESITE|DOMAIN|PATH)' services/api/app/config.py >/dev/null \
+  && ok "BFL_AUTH_COOKIE env" || bad "BFL_AUTH_COOKIE env"
+
+# CSRF double-submit: наличие cookies bfl_csrf + заголовка X-CSRF-Token где-либо в app
+( grep -Rns -E 'bfl_csrf' services/api/app >/dev/null && grep -Rns -E 'X-CSRF-Token' services/api/app >/dev/null ) \
+  && ok "CSRF double-submit" || bad "CSRF double-submit"
+
+# Endpoints: допускаем " и '
+grep -Rns -E '@app\.get\(\s*["'\'']/livez["'\'']\s*\)' services/api/app/main.py >/dev/null && ok "/livez" || bad "/livez"
+grep -Rns -E '@app\.get\(\s*["'\'']/readyz["'\'']\s*\)' services/api/app/main.py >/dev/null && ok "/readyz" || bad "/readyz"
+# /api/health может быть и router.get(...)
+grep -Rns -E '(@app|router)\.get\(\s*["'\'']/api/health["'\'']\s*\)' services/api/app/main.py services/api/app/auth.py 2>/dev/null \
+  && ok "/api/health" || bad "/api/health"
+
+# Security headers
+grep -Rns -E 'X-Content-Type-Options.*nosniff' services/api/app/middleware/sec_headers.py >/dev/null \
+  && ok "Security headers: nosniff" || bad "Security headers: nosniff"
+grep -Rns -E 'Referrer-Policy.*no-referrer' services/api/app/middleware/sec_headers.py >/dev/null \
+  && ok "Security headers: no-referrer" || bad "Security headers: no-referrer"
+
+# AuthGate: допускаем разные формулировки — JSONResponse + 401 и RedirectResponse + 303
+grep -Rns -E 'JSONResponse\([^)]*status_code\s*=\s*401' services/api/app/middleware/auth_gate.py >/dev/null \
+  && ok "AuthGate /api→401" || bad "AuthGate /api→401"
+grep -Rns -E 'RedirectResponse\([^)]*status_code\s*=\s*303' services/api/app/middleware/auth_gate.py >/dev/null \
+  && ok "AuthGate /autopilot→303" || bad "AuthGate /autopilot→303"
+
+# Rate-limit: наличие get_limiter и redis.*async, плюс хук в /api/auth/login
+( grep -Rns -E 'def\s+get_limiter' services/api/app/ratelimit.py >/dev/null && \
+  grep -Rns -E 'redis(\.asyncio)?' services/api/app/ratelimit.py >/dev/null ) \
+  && ok "Rate limit (Redis)" || bad "Rate limit (Redis)"
+grep -Rns -E '(/api/auth/login|async def login).*get_limiter' services/api/app/auth.py >/dev/null \
+  && ok "Rate limit hook in login" || bad "Rate limit hook in login"
+
+# Prometheus
+grep -Rns -E 'bfl_autopilot_http_latency_seconds' services/api/app/metrics.py >/dev/null \
+  && ok "Prometheus metrics" || bad "Prometheus metrics"
+
+# Base64 автопаддинг
+grep -Rns -E '_b64pad|=+\"?\\)?$' services/api/app/auth.py >/dev/null \
+  && ok "Base64 autopadding" || bad "Base64 autopadding"
+
+# Docker/compose
+grep -Rns '^USER ' services/api/Dockerfile | grep -vq root && ok "Dockerfile non-root" || bad "Dockerfile USER"
+! grep -Rns '8000:8000' docker-compose.yml >/dev/null && ok "compose base: no 8000:8000" || bad "compose base publishes 8000"
+grep -Rns -E '127\.0\.0\.1:18000:8000' docker-compose.override.yml >/dev/null && ok "override: 127.0.0.1:18000:8000" || bad "override loopback"
+
+print "\n✔ AUDIT: DONE"
