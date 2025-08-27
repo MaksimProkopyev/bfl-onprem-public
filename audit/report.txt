@@ -16,10 +16,10 @@
 [38;5;76m✅ file: docs/RUNBOOK.md[39m
 [38;5;76m✅ file: docs/SECURITY.md[39m
 [38;5;76m✅ file: services/api/tests[39m
-[38;5;196m❌ file: e2e[39m
+[38;5;76m✅ file: e2e[39m
 
 • Greps
-[38;5;76m✅ cookie setter flags[39m
+[38;5;196m❌ cookie setter flags[39m
 [38;5;76m✅ BFL_AUTH_COOKIE env[39m
 [38;5;76m✅ CSRF double-submit[39m
 [38;5;76m✅ /livez[39m
@@ -30,10 +30,10 @@ services/api/app/main.py:83:@app.get("/api/health")
 [38;5;76m✅ Security headers: no-referrer[39m
 [38;5;76m✅ AuthGate /api→401[39m
 [38;5;76m✅ AuthGate /autopilot→303[39m
-[38;5;196m❌ Rate limit (Redis)[39m
+[38;5;76m✅ Rate limit (Redis)[39m
 [38;5;196m❌ Rate limit hook in login[39m
 [38;5;76m✅ Prometheus metrics[39m
-[38;5;196m❌ Base64 autopadding[39m
+[38;5;76m✅ Base64 autopadding[39m
 [38;5;76m✅ Dockerfile non-root[39m
 [38;5;76m✅ compose base: no 8000:8000[39m
 [38;5;76m✅ override: 127.0.0.1:18000:8000[39m
