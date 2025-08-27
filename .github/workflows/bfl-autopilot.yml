@@ -1,13 +1,5 @@
 name: BFL Autopilot Deploy
-on:
-  push:
-    branches: [ "**" ]
-    paths-ignore: ["**.md","**/*.png","**/*.jpg"]
-  workflow_dispatch: {}
-concurrency:
-  group: bfl-onprem-deploy
-  cancel-in-progress: true
-jobs:
+on:n  push:n    branches: [ main ]n  workflow_dispatch:nnjobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 40
