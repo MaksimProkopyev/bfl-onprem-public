@@ -1,33 +1,56 @@
-from __future__ import annotations
-from typing import Optional
-import os
-from .config import settings
-try:
-    from redis import asyncio as redis
-except Exception:
-    redis = None
+import os, time, asyncio
+from typing import Callable, Awaitable, Optional
 
-class RateLimiter:
-    def __init__(self, url: Optional[str], max_per_min: int = 10, lock_sec: int = 60):
-        self.url = url; self.max_per_min = max_per_min; self.lock_sec = lock_sec; self._r=None
-    async def connect(self):
-        if self.url and redis:
-            self._r = redis.from_url(self.url)
-        return self
-    async def incr(self, key: str) -> bool:
-        if not self._r: return False
-        p = self._r.pipeline(); p.incr(key); p.expire(key, 60)
-        count,_ = await p.execute()
-        return int(count) > self.max_per_min
-    async def lock(self, key: str):
-        if not self._r: return
-        await self._r.setex(f"lock:{key}", self.lock_sec, 1)
-    async def is_locked(self, key: str) -> bool:
-        if not self._r: return False
-        return bool(await self._r.get(f"lock:{key}"))
-    async def ping(self) -> bool:
-        if not self._r: return False
-        try: return bool(await self._r.ping())
-        except Exception: return False
+# In-memory fallback limiter (per-minute window)
+class InMemoryRateLimiter:
+    def __init__(self, max_per_min: int, lock_sec: int):
+        self.max = max_per_min
+        self.lock = lock_sec
+        self.bucket = {}  # key -> (reset_ts, count)
 
-rate_limiter = RateLimiter(settings.REDIS_URL, int(os.getenv("BFL_AUTH_RL_MAX_PER_MIN", "10")), int(os.getenv("BFL_AUTH_RL_LOCK_SEC", "60")))
+    async def __call__(self, key: str) -> bool:
+        now = int(time.time())
+        reset, cnt = self.bucket.get(key, (now + 60, 0))
+        if now >= reset:
+            reset, cnt = now + 60, 0
+        cnt += 1
+        if cnt > self.max:
+            # lock by pushing reset into the future
+            reset = max(reset, now + self.lock)
+            self.bucket[key] = (reset, cnt)
+            return False
+        self.bucket[key] = (reset, cnt)
+        return True
+
+async def _redis_limiter(url: str, max_per_min: int, lock_sec: int) -> Callable[[str], Awaitable[bool]]:
+    try:
+        # prefer redis.asyncio if available
+        from redis.asyncio import from_url as redis_from_url  # type: ignore
+        r = redis_from_url(url, decode_responses=True)
+        async def limiter(key: str) -> bool:
+            # atomic INCR + EXPIRE within 60s window; lock on exceed
+            pipe = r.pipeline()
+            k = f"rl:{key}:{int(time.time()//60)}"
+            await pipe.incr(k).expire(k, 120).execute()
+            cnt = int(await r.get(k) or "0")
+            if cnt > max_per_min:
+                await r.setex(f"rl:lock:{key}", lock_sec, "1")
+                return False
+            if await r.get(f"rl:lock:{key}"):
+                return False
+            return True
+        # smoke ping to ensure connection ok
+        await r.ping()
+        return limiter
+    except Exception:
+        return None  # fall back
+
+async def get_limiter() -> Callable[[str], Awaitable[bool]]:
+    max_per_min = int(os.getenv("BFL_AUTH_RL_MAX_PER_MIN", "10"))
+    lock_sec    = int(os.getenv("BFL_AUTH_RL_LOCK_SEC", "60"))
+    url = os.getenv("REDIS_URL", "").strip()
+    if url:
+        lim = await _redis_limiter(url, max_per_min, lock_sec)
+        if lim: return lim
+    # graceful fallback
+    return InMemoryRateLimiter(max_per_min, lock_sec)
