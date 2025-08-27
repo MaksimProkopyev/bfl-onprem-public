@@ -33,13 +33,4 @@ def verify_token(token: str) -> str | None:
         return None
 
 def set_auth_cookie(resp: Response, token: str):
-    resp.set_cookie(
-        key=settings.BFL_AUTH_COOKIE,
-        value=token,
-        secure=settings.BFL_COOKIE_SECURE,
-        httponly=settings.BFL_COOKIE_HTTPONLY,
-        samesite=settings.BFL_COOKIE_SAMESITE,
-        domain=settings.BFL_COOKIE_DOMAIN,
-        path=settings.BFL_COOKIE_PATH,
-        max_age=settings.BFL_AUTH_TTL_SEC,
-    )
+    resp.set_cookie(key=settings.BFL_AUTH_COOKIE, value=token, secure=settings.BFL_COOKIE_SECURE, httponly=settings.BFL_COOKIE_HTTPONLY, samesite=settings.BFL_COOKIE_SAMESITE, domain=settings.BFL_COOKIE_DOMAIN, path=settings.BFL_COOKIE_PATH, max_age=settings.BFL_AUTH_TTL_SEC)
