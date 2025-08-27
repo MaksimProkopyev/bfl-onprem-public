@@ -60,7 +60,8 @@ grep -Rns -E 'RedirectResponse\([^)]*status_code\s*=\s*303' services/api/app/mid
 # Rate-limit: наличие get_limiter и redis.*async, плюс хук в /api/auth/login
 ( grep -Rns -E 'def\s+get_limiter' services/api/app/ratelimit.py >/dev/null && \
   grep -Rns -E 'redis(\.asyncio)?' services/api/app/ratelimit.py >/dev/null ) \
-if ; then
+if grep -Rns -E 'def[[:space:]]+get_limiter' services/api/app/ratelimit.py >/dev/null \
+   && grep -Rns -E 'redis(\.asyncio)?' services/api/app/ratelimit.py >/dev/null; then
 if   ok "Rate limit (Redis)"; then
   ok "Rate limit (Redis)"
 else
