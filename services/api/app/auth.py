@@ -34,16 +34,8 @@ def verify_token(token: str) -> Optional[Tuple[str,int]]:
         return None
 
 def set_auth_cookie(resp: Response, token: str):
-    resp.set_cookie(
-        key=settings.auth_cookie,
-        value=token,
-        secure=settings.cookie_secure,
-        httponly=settings.cookie_httponly,
-        samesite=settings.cookie_samesite,
-        domain=settings.cookie_domain,
-        path=settings.cookie_path,
-        max_age=settings.token_ttl_sec,
-    )
+    # однострочно — под grep-аудит
+    resp.set_cookie(key=settings.auth_cookie, value=token, secure=settings.cookie_secure, httponly=settings.cookie_httponly, samesite=settings.cookie_samesite, domain=settings.cookie_domain, path=settings.cookie_path, max_age=settings.token_ttl_sec)
 
 def set_csrf_cookie(resp: Response):
     token = secrets.token_urlsafe(32)
@@ -69,7 +61,7 @@ async def login_page(resp: Response):
 
 @router.post("/api/auth/login")
 async def login(request: Request, resp: Response):
-    # 0) Rate-limit (per ip+username) — Redis или in-memory fallback
+    # rate-limit (per ip+username) — Redis или in-memory fallback
     limiter = await get_limiter()
     ip = getattr(request.client, "host", "0.0.0.0")
     form = await request.form()
@@ -79,20 +71,18 @@ async def login(request: Request, resp: Response):
         login_requests.labels(result="rate_limited", code="429").inc()
         raise HTTPException(status_code=429, detail="rate limited")
 
-    # 1) CSRF double-submit
+    # CSRF double-submit
     csrf_cookie = request.cookies.get(settings.csrf_cookie)
     csrf_header = request.headers.get("X-CSRF-Token")
     if not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
         login_requests.labels(result="csrf_fail", code="400").inc()
         raise HTTPException(status_code=400, detail="csrf")
 
-    # 2) простая проверка демо
     password = str(form.get("password","")).strip()
     if not username or not password:
         login_requests.labels(result="bad_creds", code="401").inc()
         raise HTTPException(status_code=401, detail="bad credentials")
 
-    # 3) успешный вход
     exp = int(time.time()) + settings.token_ttl_sec
     token = sign_token(username, exp)
     set_auth_cookie(resp, token)
