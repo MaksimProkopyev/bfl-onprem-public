@@ -1,0 +1,35 @@
+[33m•[0m Files
+[32m✔[0m exists: services/api/app/config.py
+[32m✔[0m exists: services/api/app/auth.py
+[32m✔[0m exists: services/api/app/middleware/auth_gate.py
+[32m✔[0m exists: services/api/app/middleware/sec_headers.py
+[32m✔[0m exists: services/api/app/metrics.py
+[32m✔[0m exists: services/api/app/ratelimit.py
+[32m✔[0m exists: services/api/app/main.py
+[32m✔[0m exists: services/api/Dockerfile
+[32m✔[0m exists: docker-compose.yml
+[32m✔[0m exists: docker-compose.override.yml
+[32m✔[0m exists: scripts/smoke.sh
+[32m✔[0m exists: .github/workflows/ci.yml
+[32m✔[0m exists: docs/LOGIN.md
+[32m✔[0m exists: docs/RUNBOOK.md
+[32m✔[0m exists: docs/SECURITY.md
+[32m✔[0m exists: services/api/tests
+
+[33m•[0m Greps
+[32m✔[0m cookie setter flags
+[32m✔[0m BFL_AUTH_COOKIE env
+[32m✔[0m CSRF double-submit
+[32m✔[0m AuthGate /api→401
+[32m✔[0m AuthGate /autopilot→303
+[32m✔[0m Rate limit (Redis)
+[32m✔[0m /livez,/readyz,/api/health
+[32m✔[0m Security headers
+[32m✔[0m Prometheus metrics
+[32m✔[0m Base64 autopadding
+[32m✔[0m Dockerfile non-root
+[32m✔[0m compose base: no 8000:8000
+[32m✔[0m override: 127.0.0.1:18000:8000
+[32m✔[0m CI workflow present
+
+[32m✔[0m AUDIT: PASS
