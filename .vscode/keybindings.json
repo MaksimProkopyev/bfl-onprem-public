@@ -1,0 +1,67 @@
+[
+  {
+    "key": "cmd+shift+u",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Dev: Start (tunnel+ui)",
+    "when": "workspaceFolderCount > 0"
+  },
+  {
+    "key": "cmd+shift+i",
+    "command": "workbench.action.tasks.runTask",
+    "args": "UI: Preview @5174 (build+preview)",
+    "when": "workspaceFolderCount > 0"
+  },
+  {
+    "key": "cmd+shift+t",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Tunnel: 8000 → VM",
+    "when": "workspaceFolderCount > 0"
+  },
+  {
+    "key": "cmd+shift+s",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Smoke: Acceptance (:8000)",
+    "when": "workspaceFolderCount > 0"
+  },
+  {
+    "key": "cmd+shift+p",
+    "command": "-workbench.action.showCommands",
+    "when": "false"
+  },
+  {
+    "key": "cmd+shift+l",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Logs: Vite dev tail",
+    "when": "workspaceFolderCount > 0"
+  },
+  {
+    "key": "cmd+shift+a",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Logs: API (VM docker)",
+    "when": "workspaceFolderCount > 0"
+  },
+  {
+    "key": "cmd+shift+o",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Open: Dev UI",
+    "when": "workspaceFolderCount > 0"
+  },
+  {
+    "key": "cmd+shift+p",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Open: Prod UI",
+    "when": "workspaceFolderCount > 0"
+  },
+  {
+    "key": "cmd+t",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Tunnel: ensure (script)",
+    "when": "workspaceFolderCount > 0"
+  },
+  {
+    "key": "cmd+y",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Smoke: Acceptance (script)",
+    "when": "workspaceFolderCount > 0"
+  }
+]

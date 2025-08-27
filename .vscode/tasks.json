@@ -1,0 +1,193 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Tunnel: 8000 → VM",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "set -euo pipefail; pgrep -f 'ssh -N -L 127.0.0.1:8000:127.0.0.1:18000 bfl-onprem' >/dev/null 2>&1 || (nohup ssh -o ExitOnForwardFailure=yes -N -L 127.0.0.1:8000:127.0.0.1:18000 bfl-onprem >>/tmp/bfl-tunnel.log 2>&1 & disown); sleep 0.5; (lsof -nP -iTCP:8000 -sTCP:LISTEN || true)"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "UI: Dev @5174 (screen)",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "set -euo pipefail; cd services/ui; ([ -f package-lock.json ] && npm ci || npm install); screen -S vite5174 -X quit >/dev/null 2>&1 || true; lsof -tiTCP:5174 -sTCP:LISTEN | xargs -r kill -9; :> /tmp/vite-dev.log; screen -dmS vite5174 bash -lc 'cd ~/src/bfl-onprem/services/ui && CI=1 exec npx vite --host 127.0.0.1 --port 5174 --strictPort < /dev/null >>/tmp/vite-dev.log 2>&1'; sleep 1; curl -fsSI http://127.0.0.1:5174/autopilot | sed -n '1,2p'"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "UI: Preview @5174 (build+preview)",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "set -euo pipefail; cd services/ui; npx vite build; screen -S vite5174 -X quit >/dev/null 2>&1 || true; lsof -tiTCP:5174 -sTCP:LISTEN | xargs -r kill -9; :> /tmp/vite-dev.log; screen -dmS vite5174 bash -lc 'cd ~/src/bfl-onprem/services/ui && CI=1 exec npx vite preview --host 127.0.0.1 --port 5174 --strictPort < /dev/null >>/tmp/vite-dev.log 2>&1'; sleep 1; curl -fsSI http://127.0.0.1:5174/autopilot | sed -n '1,2p'"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Prod: Sync UI dist → VM",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "set -euo pipefail; cd services/ui; npx vite build; ssh bfl-onprem 'sudo install -d -o bfl -g bfl -m 0755 /opt/bfl/services/ui/dist'; rsync -avz --delete ./dist/ bfl-onprem:/opt/bfl/services/ui/dist/"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "API: Restart (compose build/up)",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "set -euo pipefail; ssh bfl-onprem 'sudo fuser -k 8000/tcp >/dev/null 2>&1 || true; cd /opt/bfl; docker compose pull || true; docker compose up -d --no-deps --build api; docker ps --filter name=api --format \"table {{.Names}}\\t{{.Status}}\"'"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Smoke: Acceptance (:8000)",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "set -euo pipefail; curl -fsS 127.0.0.1:8000/api/health; curl -fsS 127.0.0.1:8000/metrics | grep -m1 '^bfl_autopilot_' || echo 'metrics: prefix missing'; a=\"$(curl -fsS 127.0.0.1:8000/autopilot/ | grep -o '/autopilot/assets/[^\"\\n]\\+\\.js' | head -n1)\"; [ -n \"$a\" ] && curl -fsSI \"http://127.0.0.1:8000$a\" | sed -n '1,2p' || echo 'no prod assets'"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Dev: Start (tunnel+ui)",
+      "dependsOn": [
+        "Tunnel: 8000 → VM",
+        "UI: Dev @5174 (screen)"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Prod: Sync+Restart",
+      "dependsOn": [
+        "Prod: Sync UI dist → VM",
+        "API: Restart (compose build/up)"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Logs: Vite dev tail",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "tail -n 200 -f /tmp/vite-dev.log"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Logs: API (VM docker)",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "ssh bfl-onprem 'docker ps --filter name=api -q | xargs -r -n1 docker logs -f'"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "UI: Lint",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "cd services/ui && npx eslint . --ext .ts,.tsx"
+      ],
+      "problemMatcher": [
+        "$eslint-stylish"
+      ]
+    },
+    {
+      "label": "UI: Fix (eslint+prettier)",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "cd services/ui && npx eslint . --ext .ts,.tsx --fix && npx prettier --write ."
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Open: Dev UI",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "open 'http://127.0.0.1:5174/autopilot/'"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Open: Prod UI",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "open 'http://127.0.0.1:8000/autopilot/'"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Smoke: Dev (:5174)",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "set -euo pipefail; curl -fsS 127.0.0.1:5174/autopilot/ | sed -n '1p'; curl -fsSI 127.0.0.1:5174/autopilot/@vite/client | sed -n '1,2p'"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Tunnel: ensure (script)",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "./scripts/tunnel.sh"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Smoke: Acceptance (script)",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "./scripts/smoke.sh"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Mon: Start (Prom+Graf)",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "./scripts/monitoring-tunnel.sh && ssh bfl-onprem 'cd /opt/bfl/monitoring && docker compose -f docker-compose.monitoring.yml up -d'"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Mon: Smoke",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "./scripts/monitoring-tunnel.sh && curl -fsSI 127.0.0.1:9090/-/ready | sed -n '1p' && curl -fsSI 127.0.0.1:3000/login | sed -n '1p'"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}
