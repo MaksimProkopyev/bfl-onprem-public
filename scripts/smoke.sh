@@ -1,33 +1,29 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
 set -euo pipefail
-HOST="127.0.0.1:8000"
-pass(){ print -P "%F{2}$1%f"; }
-fail(){ print -P "%F{1}⛔ $1%f"; exit 1; }
+BASE="${BASE:-http://127.0.0.1:18000}"
 
-# 0) туннель
-DIR="${0:a:h}"; "$DIR/tunnel.sh" >/dev/null 2>&1 || true
+req() { curl -fsS "$@"; }
 
-# 1) health
-curl -fsS "http://$HOST/api/health" | grep -q '{"ok":true}' && pass "health OK" || fail "health FAIL"
+echo "[1] /livez";       req "$BASE/livez" | grep -q '"ok": true'
+echo "[2] /metrics";     req "$BASE/metrics" | grep -q 'bfl_autopilot_http_latency_seconds_bucket'
+echo "[3] /readyz";      code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/readyz"); [[ "$code" =~ 200|503 ]]
+echo "[4] /api/health";  req "$BASE/api/health" | grep -q '"status": "ok"'
 
-# 2) metrics
-curl -fsS "http://$HOST/metrics" | grep -q '^bfl_autopilot_' && pass "metrics OK" || fail "metrics FAIL"
+echo "[5] UI login page (public)"
+html="$(curl -fsS "$BASE/autopilot/login" | head -n1)"
+echo "$html" | grep -qi "<html" || { echo "ui login FAIL"; exit 2; }
 
-# 3) login
-JAR="/tmp/bfl.cookies"; rm -f "$JAR"
-USER="${BFL_USER:-admin}"; PASS="${BFL_PASS:-admin}"
-curl -fsS -c "$JAR" -d "username=$USER&password=$PASS" -X POST "http://$HOST/api/auth/login" >/dev/null || fail "login FAIL"
+echo "[6] CSRF + login"
+h=$(mktemp); c=$(mktemp)
+curl -s -D "$h" -c "$c" "$BASE/autopilot/login" >/dev/null
+csrf=$(grep -E '\sbfl_csrf\s' "$c" | awk '{print $7}')
+[ -n "$csrf" ] || { echo "no csrf"; exit 3; }
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$c" -c "$c" -H "X-CSRF-Token: $csrf" \
+  -F 'username=demo' -F 'password=demo' "$BASE/api/auth/login")
+[ "$code" = "200" ] || { echo "login failed"; exit 4; }
 
-# 4) UI HTML (проверяем doctype без учёта регистра либо content-type)
-HTML="$(curl -fsS -b "$JAR" "http://$HOST/autopilot/")" || fail "ui html FAIL"
-if print -r -- "$HTML" | grep -qi '<!doctype html'; then pass "ui html OK"; else
-  HDRS="$(curl -fsSI -b "$JAR" "http://$HOST/autopilot/")"
-  echo "$HDRS" | grep -iq '^content-type: *text/html' && pass "ui html OK" || fail "ui html FAIL"
-fi
+echo "[7] /api/auth/me (401->200)"
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/auth/me"); [ "$code" = "401" ]
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$c" "$BASE/api/auth/me"); [ "$code" = "200" ]
 
-# 5) asset
-ASSET="$(print -r -- "$HTML" | sed -n 's#.*src="/autopilot/assets/\([^"]\+\.js\)".*#\1#p' | head -n1)"
-[ -n "$ASSET" ] || fail "asset not found in html"
-curl -fsSI "http://$HOST/autopilot/assets/$ASSET" | head -n1 | grep -q "200" && pass "asset OK" || fail "asset missing"
-
-pass "SMOKE: ALL GREEN"
+echo "SMOKE: ALL GREEN"
