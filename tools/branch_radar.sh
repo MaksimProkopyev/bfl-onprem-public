@@ -22,19 +22,4 @@ for B in $BRANCHES; do
   printf "| %s | %s | %s | %s | %s | %s | %s | %s%s | %s | %s |\n" \
     "$(echo "$B" | sed 's#^origin/##')" "$AHEAD" "$BEHIND" "$LAST" "$HAS_8000" "$HAS_OVERRIDE" "$NONROOT" "$LIVEZ" "$READYZ" "$DOCS" "$CI" >> "$OUT"
 done
-echo "\n## Per-branch change focus vs $BASE" >> "$OUT"
-for B in $BRANCHES; do
-  [ "$B" = "HEAD" ] && continue
-  echo "\n### $(echo "$B" | sed 's#^origin/##')" >> "$OUT"
-  echo '```' >> "$OUT"
-  git diff --name-only "$BASE...$B" 2>/dev/null \
-    | awk -F/ '{print $1"/"$2}' | sed 's#/$##' \
-    | sort | uniq -c | sort -nr | head -n 12 >> "$OUT" || true
-  echo '```' >> "$OUT"
-done
-echo "\n## Potential security flags in cookie setter (grep snapshot)" >> "$OUT"
-for B in $BRANCHES; do
-  CS=$(git show "$B:services/api/app/auth.py" 2>/dev/null | grep -n 'set_cookie' || true)
-  [ -n "$CS" ] && { echo "\n### $(echo "$B" | sed 's#^origin/##')" >> "$OUT"; printf '```\n%s\n```\n' "$CS" >> "$OUT"; }
-done
-echo "Wrote $OUT"
+echo "\n## Done" >> "$OUT"

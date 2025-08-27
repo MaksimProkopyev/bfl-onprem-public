@@ -2,9 +2,7 @@
 set -eu
 OUTDIR="audit"
 mkdir -p "$OUTDIR"
-CURRENT=$(git rev-parse --abbrev-ref HEAD)
-
-# Все локальные ветки (кроме HEAD)
+CUR=$(git rev-parse --abbrev-ref HEAD)
 for BR in $(git for-each-ref --format='%(refname:short)' refs/heads | grep -v '^HEAD$'); do
   echo "=== AUDIT $BR ==="
   git switch "$BR" >/dev/null 2>&1 || git checkout "$BR"
@@ -15,7 +13,5 @@ for BR in $(git for-each-ref --format='%(refname:short)' refs/heads | grep -v '^
     echo "audit/bfl_audit.sh отсутствует в $BR, пропускаю" | tee "$OUTDIR/audit-$SAFE.txt"
   fi
 done
-
-# Вернёмся
-git switch "$CURRENT" >/dev/null 2>&1 || git checkout "$CURRENT"
-echo "DONE. См. папку audit/"
+git switch "$CUR" >/dev/null 2>&1 || git checkout "$CUR"
+echo "DONE"
