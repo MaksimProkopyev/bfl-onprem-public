@@ -1,3 +1,4 @@
 
 # BFL auth login dep
-RUN pip install --no-cache-dir python-multipart
+COPY requirements.txt requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt

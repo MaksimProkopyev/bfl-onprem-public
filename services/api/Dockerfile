@@ -7,12 +7,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential curl ca-certificates && \
     rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 
 # python-зависимости
-RUN pip install --no-cache-dir \
-      "fastapi>=0.110" "uvicorn[standard]>=0.29" "prometheus-client>=0.16"
+COPY services/api/requirements.txt requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-WORKDIR /app
 COPY services/api /app
 
 EXPOSE 8000

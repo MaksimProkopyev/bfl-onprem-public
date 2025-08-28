@@ -4,3 +4,4 @@ prometheus-client
 httpx
 redis
 pytest
+python-multipart==0.0.9
