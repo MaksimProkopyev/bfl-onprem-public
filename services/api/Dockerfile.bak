@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 # python-зависимости
-RUN pip install --no-cache-dir \
-      "fastapi>=0.110" "uvicorn[standard]>=0.29" "prometheus-client>=0.16"
+COPY services/api/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 WORKDIR /app
 COPY services/api /app
