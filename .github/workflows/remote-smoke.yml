@@ -53,12 +53,13 @@ jobs:
             echo "YC_* secrets are not set"; exit 2
           fi
           printf "%s" "${YC_SA_KEY_JSON}" > sa.json
-          yc init --service-account-key sa.json --cloud-id "$YC_CLOUD_ID" --folder-id "$YC_FOLDER_ID" <<EOF
-          n
-          EOF
+          # создаём/активируем профиль и настраиваем ключ
+          yc config profile create gh-remote-smoke || yc config profile activate gh-remote-smoke
+          yc config set service-account-key sa.json
+          yc config set cloud-id "${YC_CLOUD_ID}"
+          yc config set folder-id "${YC_FOLDER_ID}"
           yc config set compute-default-zone "${YC_ZONE:-ru-central1-a}"
           yc config list
-
       - name: Generate ephemeral SSH key & add to VM metadata
         id: keygen
         run: |
