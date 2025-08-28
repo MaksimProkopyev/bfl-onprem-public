@@ -75,18 +75,32 @@ jobs:
         run: |
           set -euo pipefail
           key="${{ steps.keygen.outputs.key }}"
-          yc compute ssh --name "$VM_NAME" --login "$VM_LOGIN" --ssh-key "$key" -- \
-            "set -euo pipefail; \
-             dir=; for d in $REMOTE_DIR_CANDIDATES; do [[ -d \$d ]] && dir=\$d && break; done; \
-             [[ -n \$dir ]] || { echo 'repo dir not found on VM'; exit 3; }; \
-             cd \$dir; \
-             if ! command -v docker >/dev/null 2>&1; then \
-               sudo apt-get update -y && sudo apt-get install -y docker.io docker-compose-plugin && \
-               sudo systemctl enable --now docker; \
-             fi; \
-             sudo docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --build api redis; \
-             sudo docker compose ps"
-
+          yc compute ssh --name "$VM_NAME" --login "$VM_LOGIN" --ssh-key "$key" -- '
+            set -euo pipefail
+            # 0) git/docker, если их нет
+            if ! command -v git >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y git; fi
+            if ! command -v docker >/dev/null 2>&1; then
+              sudo apt-get update -y && sudo apt-get install -y docker.io docker-compose-plugin
+              sudo systemctl enable --now docker
+            fi
+            # 1) найти/склонировать репо
+            REPO=;
+            for d in ~/bfl-onprem ~/src/bfl-onprem; do
+              if [ -d "$d/.git" ]; then REPO="$d"; break; fi
+            done
+            if [ -z "${REPO:-}" ]; then
+              REPO=~/bfl-onprem
+              git clone --depth=1 https://github.com/MaksimProkopyev/bfl-onprem-public.git "$REPO"
+            fi
+            cd "$REPO"
+            # 2) поднять compose (api+redis) с билдом
+            sudo docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --build api redis || {
+              echo "--- docker compose ps ---"; sudo docker compose ps || true
+              echo "--- api logs (tail) ---"; sudo docker compose logs --no-color --timestamps --tail=120 api || true
+              exit 4
+            }
+            sudo docker compose ps
+          '
       - name: Create SSH tunnel to 127.0.0.1:8000
         run: |
           set -euo pipefail
