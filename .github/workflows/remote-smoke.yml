@@ -38,8 +38,11 @@ jobs:
 
       - name: Install yc CLI
         run: |
-          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -a
-          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+          set -euo pipefail
+          curl -sSfL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -a
+          # Добавим yc в PATH для ЭТОГО и последующих шагов
+          export PATH="$HOME/yandex-cloud/bin:$PATH"
+          echo "$HOME/yandex-cloud/bin" >> "$GITHUB_PATH"
           yc --version
 
       - name: Configure yc (service account)
