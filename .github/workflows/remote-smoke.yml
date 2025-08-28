@@ -36,9 +36,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install yc CLI
+      - name: Install prerequisites & yc CLI
         run: |
           set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y jq openssh-client lsof
           curl -sSfL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -a
           # Добавим yc в PATH для ЭТОГО и последующих шагов
           export PATH="$HOME/yandex-cloud/bin:$PATH"
@@ -64,18 +66,23 @@ jobs:
         id: keygen
         run: |
           set -euo pipefail
-          ssh-keygen -t ed25519 -N "" -C "gh-remote-smoke-$(date +%s)" -f "$RUNNER_TEMP/yc-smoke-key"
-          PUB="$(cat "$RUNNER_TEMP/yc-smoke-key.pub")"
+          key="$RUNNER_TEMP/yc-smoke-key"
+          ssh-keygen -t ed25519 -N "" -C "gh-remote-smoke-$(date +%s)" -f "$key"
+          PUB="$(cat "$key.pub")"
           CURR="$(yc compute instance get "$VM_NAME" --format json | jq -r '.metadata["ssh-keys"] // ""')"
-          NEW="${CURR:+$CURR"$'\n'"}${VM_LOGIN}:${PUB}"
+          NEW="${CURR:+$CURR$'\n'}${VM_LOGIN}:${PUB}"
+          yc compute instance update --name "$VM_NAME" --metadata enable-oslogin=false || true
           yc compute instance update --name "$VM_NAME" --metadata "ssh-keys=${NEW}"
-          echo "key=$RUNNER_TEMP/yc-smoke-key" >> $GITHUB_OUTPUT
+          IP="$(yc compute instance get "$VM_NAME" --format json | jq -r '.network_interfaces[0].primary_v4_address.one_to_one_nat.address')"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          echo "ip=$IP" >> "$GITHUB_OUTPUT"
 
       - name: Bring up api+redis on VM
         run: |
           set -euo pipefail
           key="${{ steps.keygen.outputs.key }}"
-          yc compute ssh --name "$VM_NAME" --login "$VM_LOGIN" -i "" -- '
+          ip="${{ steps.keygen.outputs.ip }}"
+          ssh -o StrictHostKeyChecking=no -i "$key" "$VM_LOGIN@$ip" <<'SSH'
             set -euo pipefail
             export DEBIAN_FRONTEND=noninteractive
             # 0) git/docker при необходимости
@@ -85,7 +92,7 @@ jobs:
               sudo systemctl enable --now docker
             fi
             # 1) найти/склонировать/обновить репо
-            REPO=;
+            REPO=
             for d in ~/bfl-onprem ~/src/bfl-onprem; do [ -d "$d/.git" ] && REPO="$d" && break; done
             if [ -z "${REPO:-}" ]; then
               REPO=~/bfl-onprem
@@ -106,13 +113,15 @@ jobs:
               exit 4
             }
             sudo docker compose ps
-          '
+          SSH
       - name: Create SSH tunnel to 127.0.0.1:8000
         run: |
           set -euo pipefail
           key="${{ steps.keygen.outputs.key }}"
-          yc compute ssh --name "$VM_NAME" --login "$VM_LOGIN" -i "" -- \
-            -fNT -L 18000:127.0.0.1:8000 -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3
+          ip="${{ steps.keygen.outputs.ip }}"
+          ssh -o StrictHostKeyChecking=no -i "$key" \
+            -fNT -L 18000:127.0.0.1:8000 -o ExitOnForwardFailure=yes \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=3 "$VM_LOGIN@$ip"
           sleep 1
           nc -zv 127.0.0.1 18000
 
