@@ -18,6 +18,8 @@ cd services/admin-ui && (pnpm i || npm i) && (pnpm dev --host 127.0.0.1 || npm r
 - Prometheus:  http://127.0.0.1:9090
 - Alertmanager:http://127.0.0.1:9093
 - Admin-UI:    http://127.0.0.1:5173
+## Сборка Docker-образа API
+docker build -f services/api/Dockerfile -t bfl-api .  # контекст: корень репо
 
 ## Автопилот (через API)
 curl -X POST http://localhost:8000/api/admin/autopilot/tasks -H 'Content-Type: application/json' -d '{"type":"noop","payload":{}}'
