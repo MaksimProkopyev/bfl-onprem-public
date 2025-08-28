@@ -68,6 +68,19 @@ jobs:
           PUB="$(cat "$RUNNER_TEMP/yc-smoke-key.pub")"
           CURR="$(yc compute instance get "$VM_NAME" --format json | jq -r '.metadata["ssh-keys"] // ""')"
           NEW="${CURR:+$CURR"$'\n'"}${VM_LOGIN}:${PUB}"
+          # If OS Login is enabled, metadata SSH keys may be ignored.
+          #   Variant B1 – disable OS Login (use when the VM doesn't need it).
+          #     Uncomment to apply automatically:
+          #     yc compute instance update --name "$VM_NAME" --metadata \
+          #       enable-oslogin=false
+          #     Example for default VM:
+          #       yc compute instance update --name bfl-onprem --metadata \
+          #         enable-oslogin=false
+          #   Variant B2 – keep OS Login enabled (use when OS Login must stay on).
+          #     Grant the service account roles `compute.osLogin`, optionally
+          #     `compute.osAdminLogin` and `compute.operator`, upload an OS Login
+          #     SSH key, and connect using the service account's OS Login profile.
+          # Enable one of the fallbacks above if SSH fails.
           yc compute instance update --name "$VM_NAME" --metadata "ssh-keys=${NEW}"
           echo "key=$RUNNER_TEMP/yc-smoke-key" >> $GITHUB_OUTPUT
 
