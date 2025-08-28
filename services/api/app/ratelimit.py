@@ -54,3 +54,33 @@ async def get_limiter() -> Callable[[str], Awaitable[bool]]:
         if lim: return lim
     # graceful fallback
     return InMemoryRateLimiter(max_per_min, lock_sec)
+
+
+class RateLimiter:
+    """Compatibility wrapper exposing connect/is_locked/incr/ping APIs."""
+    def __init__(self):
+        self._lim: Optional[Callable[[str], Awaitable[bool]]] = None
+
+    async def connect(self) -> None:
+        self._lim = await get_limiter()
+
+    async def is_locked(self, key: str) -> bool:
+        if not self._lim:
+            await self.connect()
+        assert self._lim is not None
+        return not await self._lim(key)
+
+    async def incr(self, key: str) -> None:
+        if not self._lim:
+            await self.connect()
+        assert self._lim is not None
+        await self._lim(key)
+
+    async def ping(self) -> bool:
+        try:
+            await self.connect()
+            return True
+        except Exception:
+            return False
+
+rate_limiter = RateLimiter()

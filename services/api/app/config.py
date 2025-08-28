@@ -1,5 +1,8 @@
 import os
-from pydantic import BaseSettings
+try:
+    from pydantic_settings import BaseSettings
+except ImportError:  # pragma: no cover - fallback for older pydantic
+    from pydantic import BaseSettings
 
 class Settings(BaseSettings):
     BFL_AUTH_ENABLED: bool = bool(int(os.getenv("BFL_AUTH_ENABLED", "1")))

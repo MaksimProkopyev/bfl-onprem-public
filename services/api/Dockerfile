@@ -13,9 +13,9 @@ RUN pip install --no-cache-dir \
       "fastapi>=0.110" "uvicorn[standard]>=0.29" "prometheus-client>=0.16"
 
 WORKDIR /app
-COPY services/api /app
+COPY services /app/services
 
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host=0.0.0.0", "--port=8000"]
+CMD ["uvicorn", "services.api.app.main:app", "--host=0.0.0.0", "--port=8000"]
 RUN id -u bfl >/dev/null 2>&1 || (adduser -D -u 10001 bfl 2>/dev/null || useradd -m -u 10001 bfl)
 USER bfl

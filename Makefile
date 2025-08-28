@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 COMPOSE_FILE ?= docker-compose.infra.yml
-API_MODULE   ?= services.api.main:app
+API_MODULE   ?= services.api.app.main:app
 API_PORT     ?= 8000
 UI_DIR       ?= services/admin-ui
 .PHONY: infra infra-down api worker ui smoke-noop smoke-k6

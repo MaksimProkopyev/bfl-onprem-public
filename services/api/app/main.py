@@ -8,10 +8,13 @@ from .middleware.sec_headers import SecurityHeadersMiddleware
 from .middleware.auth_gate import AuthGateMiddleware
 from .metrics import http_latency, login_requests, rate_limit_hits, auth_invalid_token
 from .ratelimit import rate_limiter
+from services.api.routes import autopilot as autopilot_routes, alerts as alerts_routes
 
 app = FastAPI()
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(AuthGateMiddleware)
+app.include_router(autopilot_routes.router)
+app.include_router(alerts_routes.router)
 
 ui_root = os.path.dirname(settings.BFL_UI_INDEX)
 if os.path.isdir(ui_root):

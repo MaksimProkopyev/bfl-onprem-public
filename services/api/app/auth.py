@@ -15,6 +15,12 @@ def sign_token(username: str, exp: int) -> str:
     sig = hmac.new(settings.auth_secret.encode(), msg, hashlib.sha256).digest()
     return base64.urlsafe_b64encode(msg + b"." + sig).decode().rstrip("=")
 
+def make_token(username: str, exp: Optional[int] = None) -> str:
+    """Create signed auth token for *username* with optional expiry."""
+    if exp is None:
+        exp = int(time.time()) + settings.token_ttl_sec
+    return sign_token(username, exp)
+
 def verify_token(token: str) -> Optional[Tuple[str,int]]:
     try:
         raw = base64.urlsafe_b64decode(_b64pad(token))

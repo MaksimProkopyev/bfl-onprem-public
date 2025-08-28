@@ -45,7 +45,7 @@ TS
 cat > Makefile <<'MK'
 SHELL := /bin/bash
 COMPOSE_FILE ?= docker-compose.infra.yml
-API_MODULE   ?= services.api.main:app
+API_MODULE   ?= services.api.app.main:app
 API_PORT     ?= 8000
 UI_DIR       ?= services/admin-ui
 .PHONY: infra infra-down api worker ui smoke-noop smoke-k6
@@ -83,6 +83,6 @@ pip -q install -r requirements.txt
 docker compose -f docker-compose.infra.yml up -d || true
 
 echo "== OK. Дальше в 3 вкладках =="
-echo "A) source .venv/bin/activate && uvicorn services.api.main:app --host 127.0.0.1 --port 8000"
+echo "A) source .venv/bin/activate && uvicorn services.api.app.main:app --host 127.0.0.1 --port 8000"
 echo "B) source .venv/bin/activate && python -m services.workers.autopilot_runner"
 echo "C) cd services/admin-ui && (pnpm i || npm i) && (pnpm dev --host 127.0.0.1 || npm run dev -- --host 127.0.0.1)"

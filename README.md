@@ -6,7 +6,7 @@
 ## Быстрый запуск
 docker compose -f docker-compose.infra.yml up -d
 python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
-uvicorn services.api.main:app --host 127.0.0.1 --port 8000
+uvicorn services.api.app.main:app --host 127.0.0.1 --port 8000
 # отдельным окном:
 python -m services.workers.autopilot_runner
 # фронт:
