@@ -60,22 +60,40 @@ jobs:
           yc config set folder-id "${YC_FOLDER_ID}"
           yc config set compute-default-zone "${YC_ZONE:-ru-central1-a}"
           yc config list
-      - name: Generate ephemeral SSH key & add to VM metadata
-        id: keygen
+      - name: Detect SSH auth mode
+        id: auth
         run: |
           set -euo pipefail
-          ssh-keygen -t ed25519 -N "" -C "gh-remote-smoke-$(date +%s)" -f "$RUNNER_TEMP/yc-smoke-key"
+          MODE=$(yc compute instance get "$VM_NAME" --format json | jq -r '.metadata["enable-oslogin"] // "false"')
+          if [[ "$MODE" == "true" ]]; then
+            echo "mode=oslogin" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=metadata" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Generate ephemeral SSH key & add to VM metadata
+        id: keygen
+        if: steps.auth.outputs.mode == 'metadata'
+        run: |
+          set -euo pipefail
+          COMMENT="gh-remote-smoke-$(date +%s)"
+          ssh-keygen -t ed25519 -N "" -C "$COMMENT" -f "$RUNNER_TEMP/yc-smoke-key"
           PUB="$(cat "$RUNNER_TEMP/yc-smoke-key.pub")"
           CURR="$(yc compute instance get "$VM_NAME" --format json | jq -r '.metadata["ssh-keys"] // ""')"
           NEW="${CURR:+$CURR"$'\n'"}${VM_LOGIN}:${PUB}"
           yc compute instance update --name "$VM_NAME" --metadata "ssh-keys=${NEW}"
-          echo "key=$RUNNER_TEMP/yc-smoke-key" >> $GITHUB_OUTPUT
+          echo "key=$RUNNER_TEMP/yc-smoke-key" >> "$GITHUB_OUTPUT"
+          echo "comment=$COMMENT" >> "$GITHUB_OUTPUT"
 
       - name: Bring up api+redis on VM
         run: |
           set -euo pipefail
           key="${{ steps.keygen.outputs.key }}"
-          yc compute ssh --name "$VM_NAME" --login "yc-user" -i "" -- '
+          if [[ -n "$key" ]]; then
+            ssh_args=(-i "$key")
+          else
+            ssh_args=()
+          fi
+          yc compute ssh --name "$VM_NAME" --login "yc-user" "${ssh_args[@]}" -- '
             set -euo pipefail
             export DEBIAN_FRONTEND=noninteractive
             # 0) git/docker при необходимости
@@ -111,7 +129,12 @@ jobs:
         run: |
           set -euo pipefail
           key="${{ steps.keygen.outputs.key }}"
-          yc compute ssh --name "$VM_NAME" --login "yc-user" -i "" -- \
+          if [[ -n "$key" ]]; then
+            ssh_args=(-i "$key")
+          else
+            ssh_args=()
+          fi
+          yc compute ssh --name "$VM_NAME" --login "yc-user" "${ssh_args[@]}" -- \
             -fNT -L 18000:127.0.0.1:8000 -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3
           sleep 1
           nc -zv 127.0.0.1 18000
@@ -158,3 +181,11 @@ jobs:
         run: |
           pids=$(lsof -tiTCP:18000 -sTCP:LISTEN || true)
           [[ -n "$pids" ]] && kill $pids || true
+      - name: Remove SSH key from VM metadata
+        if: ${{ always() && steps.keygen.outputs.comment != '' }}
+        run: |
+          set -euo pipefail
+          COMMENT="${{ steps.keygen.outputs.comment }}"
+          CURR="$(yc compute instance get "$VM_NAME" --format json | jq -r '.metadata["ssh-keys"] // ""')"
+          FILTERED="$(printf '%s\n' "$CURR" | grep -Fv "$COMMENT" || true)"
+          yc compute instance update --name "$VM_NAME" --metadata "ssh-keys=${FILTERED}"
