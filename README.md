@@ -13,6 +13,7 @@ python -m services.workers.autopilot_runner
 cd services/admin-ui && (pnpm i || npm i) && (pnpm dev --host 127.0.0.1 || npm run dev -- --host 127.0.0.1)
 
 ## Проверка
+- API health: http://127.0.0.1:8000/api/health (порт 8000 проброшен наружу)
 - API metrics: http://127.0.0.1:8000/metrics
 - Grafana:     http://127.0.0.1:3000
 - Prometheus:  http://127.0.0.1:9090

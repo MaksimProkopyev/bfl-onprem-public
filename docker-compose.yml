@@ -6,6 +6,7 @@ services:
     container_name: bfl-api
     working_dir: /app
     ports:
+      - "8000:8000"
     volumes:
       - ./services/ui/dist:/app/ui/dist:ro
     restart: unless-stopped
