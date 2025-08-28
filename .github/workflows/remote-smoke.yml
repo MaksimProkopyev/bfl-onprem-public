@@ -75,7 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           key="${{ steps.keygen.outputs.key }}"
-          yc compute ssh --name "$VM_NAME" --login "$VM_LOGIN" -i "" -- '
+          yc compute ssh --name "$VM_NAME" --login "yc-user" -i "" -- '
             set -euo pipefail
             export DEBIAN_FRONTEND=noninteractive
             # 0) git/docker при необходимости
@@ -111,7 +111,7 @@ jobs:
         run: |
           set -euo pipefail
           key="${{ steps.keygen.outputs.key }}"
-          yc compute ssh --name "$VM_NAME" --login "$VM_LOGIN" -i "" -- \
+          yc compute ssh --name "$VM_NAME" --login "yc-user" -i "" -- \
             -fNT -L 18000:127.0.0.1:8000 -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3
           sleep 1
           nc -zv 127.0.0.1 18000
