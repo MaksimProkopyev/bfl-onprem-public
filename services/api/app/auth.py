@@ -10,7 +10,14 @@ router = APIRouter()
 def _b64pad(s: str) -> str:
     return s + "=" * (-len(s) % 4)
 
-def sign_token(username: str, exp: int) -> str:
+def make_token(username: str, exp: int | None = None) -> str:
+    """Create a signed token for *username*.
+
+    If *exp* is not provided, the token will expire after
+    ``settings.token_ttl_sec`` seconds.
+    """
+    if exp is None:
+        exp = int(time.time()) + settings.token_ttl_sec
     msg = f"{username}:{exp}".encode()
     sig = hmac.new(settings.auth_secret.encode(), msg, hashlib.sha256).digest()
     return base64.urlsafe_b64encode(msg + b"." + sig).decode().rstrip("=")
@@ -83,8 +90,7 @@ async def login(request: Request, resp: Response):
         login_requests.labels(result="bad_creds", code="401").inc()
         raise HTTPException(status_code=401, detail="bad credentials")
 
-    exp = int(time.time()) + settings.token_ttl_sec
-    token = sign_token(username, exp)
+    token = make_token(username)
     set_auth_cookie(resp, token)
     login_requests.labels(result="ok", code="200").inc()
     return {"ok": True, "next": form.get("next") or "/autopilot/"}

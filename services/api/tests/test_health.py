@@ -1,7 +1,7 @@
-from fastapi.testclient import TestClient
-from services.api.app.main import app
+import asyncio
+from services.api.app.main import livez
+
 
 def test_livez():
-    c = TestClient(app)
-    r = c.get("/livez")
-    assert r.status_code == 200
+    r = asyncio.run(livez())
+    assert r == {"status": "ok"}
