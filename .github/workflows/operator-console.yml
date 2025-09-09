@@ -1,0 +1,79 @@
+name: Operator Console
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "What to run"
+        type: choice
+        options: [oslogin_sa, oslogin_user, grant_oslogin, provision, quick_smoke]
+        required: true
+      organization_id:
+        description: "YC org id (for oslogin_*)"
+        required: false
+      subject:
+        description: "SA id or user login/email (for oslogin_*/grant)"
+        required: false
+      os_login:
+        description: "OS login"
+        default: "yc-user"
+        required: false
+      uid:
+        description: "UID"
+        default: "20000"
+        required: false
+      ref:
+        description: "Git ref for provision (unused)"
+        default: "main"
+        required: false
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      OSLOGIN_WF: yc-oslogin-profile-create.yml
+      GRANT_WF: yc-grant-oslogin.yml
+      PROVISION_WF: yc-provision.yml
+      SMOKE_WF: yc-quick-smoke.yml
+    steps:
+      - name: Dispatch selected workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ inputs.action }}" in
+            oslogin_sa)
+              gh workflow run "$OSLOGIN_WF" \
+                -f organization_id="${{ inputs.organization_id }}" \
+                -f subject_type="serviceAccount" \
+                -f subject="${{ inputs.subject }}" \
+                -f os_login="${{ inputs.os_login }}" \
+                -f uid="${{ inputs.uid }}"
+              ;;
+            oslogin_user)
+              gh workflow run "$OSLOGIN_WF" \
+                -f organization_id="${{ inputs.organization_id }}" \
+                -f subject_type="yandexPassportUserAccount" \
+                -f subject="${{ inputs.subject }}" \
+                -f os_login="${{ inputs.os_login }}" \
+                -f uid="${{ inputs.uid }}"
+              ;;
+            grant_oslogin)
+              gh workflow run "$GRANT_WF" \
+                -f subject_type="yandexPassportUserAccount" \
+                -f subject="${{ inputs.subject }}" \
+                -f role="compute.osLogin"
+              ;;
+            provision)
+              gh workflow run "$PROVISION_WF" -f debug="false"
+              ;;
+            quick_smoke)
+              gh workflow run "$SMOKE_WF"
+              ;;
+          esac
+          echo "Dispatched: ${{ inputs.action }}"

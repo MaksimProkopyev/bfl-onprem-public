@@ -1,0 +1,87 @@
+name: YC OS Login Profile Create (Codex-first)
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_id:
+        description: "YC organization id"
+        required: true
+      subject_type:
+        description: "serviceAccount | yandexPassportUserAccount"
+        required: true
+      subject:
+        description: "SA id | user id | login | email"
+        required: true
+      os_login:
+        description: "OS login (Linux user)"
+        default: "yc-user"
+        required: true
+      uid:
+        description: "POSIX uid"
+        default: "20000"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install yc CLI
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> "$GITHUB_PATH"
+      - name: Auth as service account
+        env:
+          YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
+          YC_CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
+          YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+        run: |
+          mkdir -p ~/.config/yandex-cloud
+          printf "%s" "$YC_SA_KEY_JSON" > key.json
+          yc config profile create ci
+          yc config set service-account-key key.json
+          yc config set cloud-id "$YC_CLOUD_ID"
+          yc config set folder-id "$YC_FOLDER_ID"
+          yc --version
+      - name: Resolve subject-id (for user emails/logins)
+        id: resolve
+        env:
+          ORG: ${{ inputs.organization_id }}
+          SUBJECT_TYPE: ${{ inputs.subject_type }}
+          SUBJECT: ${{ inputs.subject }}
+        run: |
+          set -euo pipefail
+          SID="$SUBJECT"
+          if [[ "$SUBJECT_TYPE" == "yandexPassportUserAccount" ]]; then
+            SID=$(yc organization-manager user list --organization-id "$ORG" --format json \
+              | jq -r --arg q "$SUBJECT" '
+                .users[] | select(
+                  (.yandex_passport_user_account.default_email == $q) or
+                  (.yandex_passport_user_account.login == $q) or
+                  (.id == $q)
+                ) | .id' | head -n1)
+            if [[ -z "${SID:-}" ]]; then
+              echo "Could not resolve user id for: $SUBJECT" >&2
+              exit 1
+            fi
+          fi
+          echo "sid=$SID" >> "$GITHUB_OUTPUT"
+      - name: Create OS Login profile
+        run: |
+          yc organization-manager oslogin profile create \
+            --organization-id "${{ inputs.organization_id }}" \
+            --subject-id "${{ steps.resolve.outputs.sid || inputs.subject }}" \
+            --login "${{ inputs.os_login }}" \
+            --uid "${{ inputs.uid }}"
+      - name: Dump profile info
+        run: |
+          yc organization-manager oslogin profile get \
+            --organization-id "${{ inputs.organization_id }}" \
+            --subject-id "${{ steps.resolve.outputs.sid || inputs.subject }}" \
+            --format yaml | tee oslogin-profile-create.yaml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oslogin-profile-create
+          path: oslogin-profile-create.yaml

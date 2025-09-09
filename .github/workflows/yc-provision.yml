@@ -1,0 +1,98 @@
+name: YC Provision (manual, safe, loopback)
+
+on:
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: "Verbose set -x"
+        default: "false"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  INSTANCE_NAME: bfl-onprem
+  SSH_LOGIN: yc-user
+  TUNNEL_LOCAL: "18000"
+  TUNNEL_REMOTE: "127.0.0.1:8000"
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install yc CLI
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> "$GITHUB_PATH"
+      - name: Auth as service account
+        env:
+          YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
+          YC_CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
+          YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+        run: |
+          printf "%s" "$YC_SA_KEY_JSON" > key.json
+          yc config profile create ci
+          yc config set service-account-key key.json
+          yc config set cloud-id "$YC_CLOUD_ID"
+          yc config set folder-id "$YC_FOLDER_ID"
+
+      - name: Ensure instance running
+        run: |
+          set -euo pipefail
+          ID=$(yc compute instance get --name "$INSTANCE_NAME" --format json | jq -r '.id')
+          STATUS=$(yc compute instance get "$ID" --format json | jq -r '.status')
+          if [[ "$STATUS" != "RUNNING" ]]; then
+            yc compute instance start "$ID"
+            yc compute instance wait-until-running "$ID"
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Open NAT window (assign public IP)
+        id: nat_on
+        run: |
+          set -euo pipefail
+          ID=$(yc compute instance get --name "$INSTANCE_NAME" --format json | jq -r '.id')
+          yc compute instance add-one-to-one-nat --id "$ID" --network-interface-index 0
+          PUBLIC_IP=$(yc compute instance get "$ID" --format json | jq -r '.network_interfaces[0].primary_v4_address.one_to_one_nat.address')
+          echo "public_ip=$PUBLIC_IP" >> "$GITHUB_OUTPUT"
+
+      - name: Remote provision (if script exists)
+        run: |
+          set -euo pipefail
+          # Выполняем провижен только если есть сценарий на ВМ
+          yc compute ssh --name "$INSTANCE_NAME" --login "$SSH_LOGIN" --command 'test -x /opt/bfl/provision.sh' \
+          && yc compute ssh --name "$INSTANCE_NAME" --login "$SSH_LOGIN" -- -o StrictHostKeyChecking=no 'sudo /opt/bfl/provision.sh' \
+          || echo "No /opt/bfl/provision.sh on VM; skipping app deploy"
+
+      - name: Health checks via SSH tunnel
+        run: |
+          set -euo pipefail
+          yc compute ssh --name "$INSTANCE_NAME" --login "$SSH_LOGIN" -- -N -L "${TUNNEL_LOCAL}:${TUNNEL_REMOTE}" -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=no &
+          TID=$!
+          for i in {1..20}; do
+            curl -fsS "http://127.0.0.1:${TUNNEL_LOCAL}/livez" && break || sleep 1
+          done
+          {
+            echo "# Provision health"
+            for p in livez readyz api/health; do
+              printf "%-10s " "$p"
+              curl -fsS "http://127.0.0.1:${TUNNEL_LOCAL}/$p" | head -c 200 || true
+              echo
+            done
+            printf "%-10s " "metrics(HEAD)"; curl -sI "http://127.0.0.1:${TUNNEL_LOCAL}/metrics" | head -n1 || true
+          } | tee provision-logs.txt
+          kill $TID || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: provision-logs
+          path: |
+            provision-logs.txt
+
+      - name: Close NAT window (always)
+        if: always()
+        run: |
+          set -euo pipefail
+          ID=$(yc compute instance get --name "$INSTANCE_NAME" --format json | jq -r '.id')
+          yc compute instance remove-one-to-one-nat --id "$ID" --network-interface-index 0 || true
