@@ -1,0 +1,31 @@
+name: YC Grant OS Login (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      organization_id:
+        description: "YC organization id"
+        required: true
+      subject_type:
+        description: "yandexPassportUserAccount | serviceAccount"
+        required: true
+      subject:
+        description: "email | login | id"
+        required: true
+      os_login:
+        description: "OS login (Linux user)"
+        default: "yc-user"
+        required: true
+      uid:
+        description: "POSIX uid"
+        default: "20000"
+        required: true
+jobs:
+  run:
+    uses: ./.github/workflows/yc-grant-oslogin.yml
+    with:
+      organization_id: ${{ inputs.organization_id }}
+      subject_type:     ${{ inputs.subject_type }}
+      subject:          ${{ inputs.subject }}
+      os_login:         ${{ inputs.os_login }}
+      uid:              ${{ inputs.uid }}
+    secrets: inherit
