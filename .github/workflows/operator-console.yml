@@ -48,7 +48,7 @@ jobs:
           set -euo pipefail
           case "${{ inputs.action }}" in
             oslogin_sa)
-              gh workflow run "$OSLOGIN_WF" \
+              gh workflow run -R "$REPO" "$OSLOGIN_WF" \
                 -f organization_id="${{ inputs.organization_id }}" \
                 -f subject_type="serviceAccount" \
                 -f subject="${{ inputs.subject }}" \
@@ -56,7 +56,7 @@ jobs:
                 -f uid="${{ inputs.uid }}"
               ;;
             oslogin_user)
-              gh workflow run "$OSLOGIN_WF" \
+              gh workflow run -R "$REPO" "$OSLOGIN_WF" \
                 -f organization_id="${{ inputs.organization_id }}" \
                 -f subject_type="yandexPassportUserAccount" \
                 -f subject="${{ inputs.subject }}" \
@@ -64,16 +64,16 @@ jobs:
                 -f uid="${{ inputs.uid }}"
               ;;
             grant_oslogin)
-              gh workflow run "$GRANT_WF" \
+              gh workflow run -R "$REPO" "$GRANT_WF" \
                 -f subject_type="yandexPassportUserAccount" \
                 -f subject="${{ inputs.subject }}" \
                 -f role="compute.osLogin"
               ;;
             provision)
-              gh workflow run "$PROVISION_WF" -f debug="false"
+              gh workflow run -R "$REPO" "$PROVISION_WF" -f debug="false"
               ;;
             quick_smoke)
-              gh workflow run "$SMOKE_WF"
+              gh workflow run -R "$REPO" "$SMOKE_WF"
               ;;
           esac
           echo "Dispatched: ${{ inputs.action }}"
