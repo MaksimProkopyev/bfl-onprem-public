@@ -1,0 +1,81 @@
+name: YC Quick Smoke (tunnel-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  INSTANCE_NAME: bfl-onprem
+  SSH_LOGIN: yc-user
+  TUNNEL_LOCAL: "18000"
+  TUNNEL_REMOTE: "127.0.0.1:8000"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install yc CLI
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> "$GITHUB_PATH"
+      - name: Auth as service account
+        env:
+          YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
+          YC_CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
+          YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+        run: |
+          printf "%s" "$YC_SA_KEY_JSON" > key.json
+          yc config profile create ci
+          yc config set service-account-key key.json
+          yc config set cloud-id "$YC_CLOUD_ID"
+          yc config set folder-id "$YC_FOLDER_ID"
+
+      - name: Open NAT window
+        id: nat_on
+        run: |
+          ID=$(yc compute instance get --name "$INSTANCE_NAME" --format json | jq -r '.id')
+          yc compute instance add-one-to-one-nat --id "$ID" --network-interface-index 0
+          PUBLIC_IP=$(yc compute instance get "$ID" --format json | jq -r '.network_interfaces[0].primary_v4_address.one_to_one_nat.address')
+          echo "public_ip=$PUBLIC_IP" >> "$GITHUB_OUTPUT"
+
+      - name: Wait SSH & open tunnel
+        run: |
+          set -euo pipefail
+          # короткая проверка ssh
+          for i in {1..30}; do
+            yc compute ssh --name "$INSTANCE_NAME" --login "$SSH_LOGIN" --command 'echo ok' && break || sleep 2
+          done
+          # стартуем туннель в фоне
+          yc compute ssh --name "$INSTANCE_NAME" --login "$SSH_LOGIN" -- -N -L "${TUNNEL_LOCAL}:${TUNNEL_REMOTE}" -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=no &
+          echo $! > tunnel.pid
+          sleep 2
+
+      - name: Check endpoints
+        run: |
+          set -euo pipefail
+          {
+            echo "# Quick smoke"
+            for p in livez readyz api/health; do
+              printf "%-10s " "$p"
+              (curl -fsS "http://127.0.0.1:${TUNNEL_LOCAL}/$p" | head -c 200 && echo "  [OK]") || echo "  [FAIL]"
+            done
+            printf "%-10s " "metrics(HEAD)"; (curl -sI "http://127.0.0.1:${TUNNEL_LOCAL}/metrics" | head -n1 && echo "  [OK]") || echo "  [FAIL]"
+          } | tee quick-smoke-logs.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quick-smoke-logs
+          path: quick-smoke-logs.txt
+
+      - name: Kill tunnel
+        if: always()
+        run: |
+          kill $(cat tunnel.pid) 2>/dev/null || true
+
+      - name: Close NAT window
+        if: always()
+        run: |
+          ID=$(yc compute instance get --name "$INSTANCE_NAME" --format json | jq -r '.id')
+          yc compute instance remove-one-to-one-nat --id "$ID" --network-interface-index 0 || true
