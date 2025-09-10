@@ -14,3 +14,4 @@ jobs:
       instance_name: ${{ inputs.instance_name }}
       zone:          ${{ inputs.zone }}
       folder_id:     ${{ inputs.folder_id }}
+    secrets: inherit
