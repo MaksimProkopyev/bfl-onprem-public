@@ -1,5 +1,4 @@
-name: Grant OS Login (wrapper)
-
+name: yc-grant-oslogin-wrapper
 on:
   workflow_dispatch:
     inputs:
@@ -15,14 +14,25 @@ on:
         description: "email (for user) or service-account id"
         type: string
         required: true
-
+      os_login:
+        description: "OS Login profile"
+        type: string
+        required: false
+        default: yc-user
+      uid:
+        description: "Linux UID (string, will be fromJSON-ed)"
+        type: string
+        required: false
+        default: "20000"
 jobs:
-  grant:
+  call:
     uses: ./.github/workflows/yc-grant-oslogin.yml
     with:
       organization_id: ${{ inputs.organization_id }}
       subject_type:    ${{ inputs.subject_type }}
       subject:         ${{ inputs.subject }}
+      os_login:        ${{ inputs.os_login }}
+      uid:             ${{ fromJSON(inputs.uid) }}
     permissions:
       id-token: write
       contents: read
