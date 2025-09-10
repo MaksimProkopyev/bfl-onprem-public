@@ -19,4 +19,4 @@ jobs:
           echo "ORG=${{ inputs.organization_id }}"
           echo "TYPE=${{ inputs.subject_type }}"
           echo "SUBJECT=${{ inputs.subject }}"
-      # TODO: здесь добавить реальные шаги выдачи OS Login в YC
+      # TODO: add real YC OS Login grant steps here
