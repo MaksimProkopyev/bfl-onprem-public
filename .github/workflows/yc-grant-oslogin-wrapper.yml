@@ -3,21 +3,26 @@ on:
   workflow_dispatch:
     inputs:
       organization_id:
+        type: string
         description: "YC organization id"
         required: true
       subject_type:
+        type: string
         description: "yandexPassportUserAccount | serviceAccount"
         required: true
       subject:
+        type: string
         description: "email | login | id"
         required: true
       os_login:
+        type: string
         description: "OS login (Linux user)"
         default: "yc-user"
         required: true
       uid:
+        type: number
         description: "POSIX uid"
-        default: "20000"
+        default: 20000
         required: true
 jobs:
   run:
