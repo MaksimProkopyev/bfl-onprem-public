@@ -1,6 +1,0 @@
-fastapi
-uvicorn[standard]
-prometheus-client
-httpx
-redis
-pytest

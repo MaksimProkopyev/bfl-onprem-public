@@ -1,3 +1,0 @@
-[32mhealth OK[39m
-[32mmetrics OK[39m
-[31m⛔ ui html FAIL[39m
