@@ -1,26 +1,118 @@
-name: Grant OS Login
-
+name: yc-grant-oslogin
 on:
   workflow_call:
     inputs:
       organization_id: { type: string, required: true }
-      subject_type:    { type: string, required: true }
-      subject:         { type: string, required: true }
+      subject_type:    { type: string, required: true }    # user | service_account | user_id
+      subject:         { type: string, required: true }    # email for user | sa id/name | user id
       os_login:        { type: string, required: false, default: yc-user }
       uid:             { type: number, required: false, default: 20000 }
-
 jobs:
   grant:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
     steps:
       - name: Show inputs (debug)
         run: |
           echo "ORG=${{ inputs.organization_id }}"
           echo "TYPE=${{ inputs.subject_type }}"
-          echo "SUBJECT=${{ inputs.subject }}"
-          echo "OS_LOGIN=${{ inputs.os_login }}"
+          echo "SUBJ=${{ inputs.subject }}"
+          echo "OSL=${{ inputs.os_login }}"
           echo "UID=${{ inputs.uid }}"
-      # TODO: реальные шаги grant здесь
+      - name: Install YC CLI
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+          echo "yc version: $(yc -v || true)"
+      - name: Auth YC (service account key)
+        env:
+          YC_SA_JSON: ${{ secrets.YC_SA_JSON }}
+          YC_CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
+          YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+        run: |
+          test -n "$YC_SA_JSON" || { echo "Missing secret YC_SA_JSON"; exit 1; }
+          printenv YC_SA_JSON > sa-key.json
+          yc config set service-account-key sa-key.json
+          test -n "$YC_CLOUD_ID" && yc config set cloud-id "$YC_CLOUD_ID" || true
+          test -n "$YC_FOLDER_ID" && yc config set folder-id "$YC_FOLDER_ID" || true
+          yc config profile list || true
+          yc iam service-account get --id "$(jq -r .service_account_id sa-key.json 2>/dev/null || echo _)" || true
+      - name: Resolve subject → subject_id
+        id: sub
+        env:
+          ORG: ${{ inputs.organization_id }}
+          TYPE: ${{ inputs.subject_type }}
+          SUBJ: ${{ inputs.subject }}
+        run: |
+          set -e
+          norm_type="$(echo "$TYPE" | tr '[:upper:]' '[:lower:]')"
+          sid=""
+          if [[ "$norm_type" == "user" ]]; then
+            yc organization-manager user list --organization-id "$ORG" --format json > users.json || true
+            sid="$(jq -r --arg e "$SUBJ" '.[] | select(.email==$e) | .id' users.json | head -n1)"
+          elif [[ "$norm_type" == "user_id" ]]; then
+            sid="$SUBJ"
+          elif [[ "$norm_type" == "service_account" ]]; then
+            # if looks like id, use as-is; else try by name
+            if [[ "$SUBJ" =~ ^[a-z0-9]{20,}$ ]]; then sid="$SUBJ"; else
+              yc iam service-account get --name "$SUBJ" --format json > sa.json
+              sid="$(jq -r '.id' sa.json)"
+            fi
+          else
+            echo "Unknown subject_type: $TYPE"; exit 1
+          fi
+          test -n "$sid" || { echo "Failed to resolve subject id for: $TYPE -> $SUBJ"; exit 1; }
+          echo "subject_id=$sid" >> "$GITHUB_OUTPUT"
+          echo "Resolved subject_id: $sid"
+      - name: Grant OS Login profile (best-effort with fallbacks)
+        env:
+          ORG: ${{ inputs.organization_id }}
+          SID: ${{ steps.sub.outputs.subject_id }}
+          OSL: ${{ inputs.os_login }}
+          UID: ${{ inputs.uid }}
+        run: |
+          set -e
+          echo "Attempt 1: organization-manager os-logins set-profile"
+          set +e
+          yc organization-manager os-logins set-profile \
+             --organization-id "$ORG" \
+             --subject-id "$SID" \
+             --name "$OSL" \
+             --uid "$UID"
+          rc=$?
+          set -e
+          if [[ $rc -ne 0 ]]; then
+            echo "Attempt 1 failed (rc=$rc). Trying alternative commands..."
+            # Attempt 2 (alt noun/verb)
+            set +e
+            yc organization-manager os-logins update \
+               --organization-id "$ORG" \
+               --subject-id "$SID" \
+               --login "$OSL" \
+               --uid "$UID"
+            rc=$?
+            set -e
+          fi
+          if [[ $rc -ne 0 ]]; then
+            echo "Attempt 2 failed (rc=$rc). Trying Attempt 3..."
+            set +e
+            yc organization-manager oslogin set \
+               --organization-id "$ORG" \
+               --subject-id "$SID" \
+               --login "$OSL" \
+               --uid "$UID"
+            rc=$?
+            set -e
+          fi
+          if [[ $rc -ne 0 ]]; then
+            echo "::warning::All attempts to set OS Login failed (rc=$rc). Dumping helps for diagnostics:"
+            (yc organization-manager --help || true)
+            (yc organization-manager os-logins --help || true)
+            exit 1
+          fi
+          echo "OS Login profile configured."
+      - name: Show resulting profile (best-effort)
+        env:
+          ORG: ${{ inputs.organization_id }}
+          SID: ${{ steps.sub.outputs.subject_id }}
+        run: |
+          yc organization-manager os-logins get --organization-id "$ORG" --subject-id "$SID" || true
