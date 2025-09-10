@@ -6,6 +6,8 @@ on:
       organization_id: { type: string, required: true }
       subject_type:    { type: string, required: true }
       subject:         { type: string, required: true }
+      os_login:        { type: string, required: false, default: yc-user }
+      uid:             { type: number, required: false, default: 20000 }
 
 jobs:
   grant:
@@ -19,4 +21,6 @@ jobs:
           echo "ORG=${{ inputs.organization_id }}"
           echo "TYPE=${{ inputs.subject_type }}"
           echo "SUBJECT=${{ inputs.subject }}"
-      # TODO: add real YC OS Login grant steps here
+          echo "OS_LOGIN=${{ inputs.os_login }}"
+          echo "UID=${{ inputs.uid }}"
+      # TODO: реальные шаги grant здесь
