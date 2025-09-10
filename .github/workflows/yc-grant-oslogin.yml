@@ -1,5 +1,4 @@
-name: Grant OS Login
-
+name: yc-grant-oslogin
 on:
   workflow_call:
     inputs:
@@ -8,19 +7,18 @@ on:
       subject:         { type: string, required: true }
       os_login:        { type: string, required: false, default: yc-user }
       uid:             { type: number, required: false, default: 20000 }
-
 jobs:
   grant:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
     steps:
-      - name: Show inputs (debug)
+      - name: Show inputs
         run: |
           echo "ORG=${{ inputs.organization_id }}"
           echo "TYPE=${{ inputs.subject_type }}"
-          echo "SUBJECT=${{ inputs.subject }}"
-          echo "OS_LOGIN=${{ inputs.os_login }}"
+          echo "SUBJ=${{ inputs.subject }}"
+          echo "OSL=${{ inputs.os_login }}"
           echo "UID=${{ inputs.uid }}"
-      # TODO: реальные шаги grant здесь
+      - name: Validate UID is number
+        run: expr "${{ inputs.uid }}" + 0 >/dev/null 2>&1
+      - name: Grant OS Login (stub)
+        run: echo "Grant OS Login stub OK"
