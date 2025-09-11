@@ -2,22 +2,18 @@ name: oslogin-reprovision
 on:
   workflow_dispatch:
     inputs:
-      apply_sg_fix:
-        description: "Fix Security Group (allow SSH only from 87.239.249.137/32)"
-        type: boolean
-        default: true
-      cleanup_old:
-        description: "Delete old instances (after IP reassign)"
-        type: boolean
-        default: false
-      old_instance_ids:
-        description: "Comma-separated old instance IDs to delete if cleanup_old=true"
-        default: "fhmsrll663cvti0muqic,fhmk821648padghpmjrf"
-        required: true
-      do_verify:
-        description: "Try OS Login check via yc compute ssh (best-effort)"
-        type: boolean
-        default: false
+      apply_sg_fix: { description: "Fix SG (SSH from 87.239.249.137/32)", type: boolean, default: true }
+      cleanup_old:  { description: "Delete old instances after IP reassign", type: boolean, default: false }
+      old_instance_ids: { description: "Comma-separated old instance IDs", required: true, default: "fhmsrll663cvti0muqic,fhmk821648padghpmjrf" }
+      do_verify:    { description: "Try OS Login check via SSH (best-effort)", type: boolean, default: false }
+  workflow_call:
+    inputs:
+      apply_sg_fix:   { type: boolean, default: true }
+      cleanup_old:    { type: boolean, default: false }
+      old_instance_ids: { type: string, required: true, default: "fhmsrll663cvti0muqic,fhmk821648padghpmjrf" }
+      do_verify:      { type: boolean, default: false }
+    secrets:
+      YC_SA_JSON: { required: true }
 
 jobs:
   reprovision:
