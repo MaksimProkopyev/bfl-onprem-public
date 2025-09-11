@@ -1,0 +1,224 @@
+name: oslogin-reprovision
+on:
+  workflow_dispatch:
+    inputs:
+      apply_sg_fix:
+        description: "Fix Security Group (allow SSH only from 87.239.249.137/32)"
+        type: boolean
+        default: true
+      cleanup_old:
+        description: "Delete old instances (after IP reassign)"
+        type: boolean
+        default: false
+      old_instance_ids:
+        description: "Comma-separated old instance IDs to delete if cleanup_old=true"
+        default: "fhmsrll663cvti0muqic,fhmk821648padghpmjrf"
+        required: true
+      do_verify:
+        description: "Try OS Login check via yc compute ssh (best-effort)"
+        type: boolean
+        default: false
+
+jobs:
+  reprovision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: oslogin-reprovision
+      cancel-in-progress: false
+    env:
+      YC_CLOUD_ID: b1g0r1ratit5lvjmi68o
+      YC_FOLDER_ID: b1gj6os8m6vmq2l7gbc2
+      ZONE: ru-central1-a
+      SUBNET_ID: e9b6okd8v5dpjebhlro4
+      SG_ID: enps3subet8bapnvj3qt
+      STATIC_IP: 89.169.156.2
+      SRC_DISK_ID: fhm5m1gmrsr7ba1gbesj
+      OSLOGIN_USER: ivmsu
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install yc & tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq curl
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "${HOME}/yandex-cloud/bin" >> $GITHUB_PATH
+
+      - name: Configure yc with SA
+        env:
+          YC_SA_JSON: ${{ secrets.YC_SA_JSON }}
+        run: |
+          mkdir -p $HOME/.config/yandex-cloud
+          echo "$YC_SA_JSON" > $HOME/sa.json
+          yc config set service-account-key $HOME/sa.json
+          yc config set cloud-id "$YC_CLOUD_ID"
+          yc config set folder-id "$YC_FOLDER_ID"
+          yc config set compute-default-zone "$ZONE"
+          yc compute zone get "$ZONE" >/dev/null
+
+      - name: Prepare timestamps & names
+        id: prep
+        run: |
+          TS="$(date +%Y%m%d-%H%M%S)"
+          echo "ts=$TS" >> $GITHUB_OUTPUT
+          echo "snap=bfl-oslogin-snap-$TS" >> $GITHUB_OUTPUT
+          echo "disk=bfl-oslogin-boot-$TS" >> $GITHUB_OUTPUT
+          echo "vm=bfl-onprem-oslogin-$TS" >> $GITHUB_OUTPUT
+
+      - name: Generate emergency SSH key (job scope)
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keygen -t ed25519 -N "" -f ~/.ssh/job_oslogin -C "job_oslogin" >/dev/null
+          cat ~/.ssh/job_oslogin.pub > /tmp/job_oslogin.pub
+
+      - name: Build cloud-init user-data
+        run: |
+          PUB=$(cat /tmp/job_oslogin.pub)
+          cat > /tmp/user-data.yaml <<EOF
+          #cloud-config
+          package_update: true
+          packages:
+            - google-compute-engine-oslogin
+            - google-guest-agent
+          write_files:
+          - path: /etc/ssh/sshd_config.d/10-oslogin.conf
+            owner: root:root
+            permissions: '0644'
+            content: |
+              UsePAM yes
+              AuthorizedKeysCommand /usr/bin/google_authorized_keys
+              AuthorizedKeysCommandUser root
+              PubkeyAuthentication yes
+              PasswordAuthentication no
+          - path: /etc/sudoers.d/90-ubuntu-nopasswd
+            owner: root:root
+            permissions: '0440'
+            content: |
+              ubuntu ALL=(ALL) NOPASSWD:ALL
+          - path: /root/job_oslogin.pub
+            owner: root:root
+            permissions: '0644'
+            content: |
+              ${PUB}
+          runcmd:
+            - [ bash, -c, 'ssh-keygen -A' ]
+            - [ bash, -c, 'id -u ubuntu >/dev/null 2>&1 || useradd -m -s /bin/bash ubuntu' ]
+            - [ bash, -c, 'install -d -m 700 -o ubuntu -g ubuntu /home/ubuntu/.ssh' ]
+            - [ bash, -c, 'curl -fsSL https://github.com/MaksimProkopyev.keys >> /home/ubuntu/.ssh/authorized_keys || true' ]
+            - [ bash, -c, 'test -s /root/job_oslogin.pub && cat /root/job_oslogin.pub >> /home/ubuntu/.ssh/authorized_keys || true' ]
+            - [ bash, -c, 'chown -R ubuntu:ubuntu /home/ubuntu/.ssh && chmod 600 /home/ubuntu/.ssh/authorized_keys || true' ]
+            - [ bash, -c, 'systemctl enable --now google-guest-agent || true' ]
+            - [ bash, -c, 'systemctl restart ssh || systemctl restart sshd || service ssh restart' ]
+          EOF
+          echo "user-data ready"
+
+      - name: Create fresh snapshot
+        id: snap
+        run: |
+          SNAP="${{ steps.prep.outputs.snap }}"
+          yc compute snapshot create --name "$SNAP" --disk-id "$SRC_DISK_ID" --description "OSLogin bootstrap ${{ steps.prep.outputs.ts }}"
+          until [[ "$(yc compute snapshot get --name "$SNAP" --format json | jq -r '.status')" == "READY" ]]; do
+            echo "waiting snapshot READY..."; sleep 3;
+          done
+          SNAP_ID=$(yc compute snapshot get --name "$SNAP" --format json | jq -r '.id')
+          echo "snap_id=$SNAP_ID" >> $GITHUB_OUTPUT
+
+      - name: Create disk from snapshot
+        id: disk
+        run: |
+          DISK="${{ steps.prep.outputs.disk }}"
+          yc compute disk create --name "$DISK" --zone "$ZONE" --source-snapshot-id "${{ steps.snap.outputs.snap_id }}"
+          until [[ "$(yc compute disk get --name "$DISK" --format json | jq -r '.status')" == "READY" ]]; do
+            echo "waiting disk READY..."; sleep 3;
+          done
+          DISK_ID=$(yc compute disk get --name "$DISK" --format json | jq -r '.id')
+          echo "disk_id=$DISK_ID" >> $GITHUB_OUTPUT
+
+      - name: Create instance (no NAT yet)
+        id: vm
+        run: |
+          VM="${{ steps.prep.outputs.vm }}"
+          if ! yc compute instance get --name "$VM" >/dev/null 2>&1; then
+            yc compute instance create \
+              --name "$VM" \
+              --zone "$ZONE" \
+              --platform standard-v2 \
+              --network-interface subnet-id="$SUBNET_ID",security-group-ids="$SG_ID" \
+              --metadata enable-oslogin=true,serial-port-enable=1 \
+              --metadata-from-file user-data=/tmp/user-data.yaml \
+              --disk disk-id="${{ steps.disk.outputs.disk_id }}",mode=READ_WRITE,auto-delete=no,boot=yes
+          fi
+          NEW_VM_ID=$(yc compute instance get --name "$VM" --format json | jq -r '.id')
+          echo "vm_id=$NEW_VM_ID" >> $GITHUB_OUTPUT
+          until [[ "$(yc compute instance get --id "$NEW_VM_ID" --format json | jq -r '.status')" == "RUNNING" ]]; do
+            echo "waiting instance RUNNING..."; sleep 3;
+          done
+
+      - name: Reassign static IP
+        id: ip
+        run: |
+          NEW_VM_ID="${{ steps.vm.outputs.vm_id }}"
+          OLD_HOLDER_ID="$(yc compute instance list --format json \
+            | jq -r --arg ip "$STATIC_IP" '[.[] | select((.network_interfaces[]?.primary_v4_address?.one_to_one_nat?.address // "")==$ip)] | .[0].id // empty')"
+          if [[ -n "$OLD_HOLDER_ID" && "$OLD_HOLDER_ID" != "$NEW_VM_ID" ]]; then
+            echo "Detaching NAT from $OLD_HOLDER_ID"
+            yc compute instance update-network-interface --id "$OLD_HOLDER_ID" --index 0 --no-nat || true
+            sleep 5
+          fi
+          CUR_IP="$(yc compute instance get --id "$NEW_VM_ID" --format json | jq -r '.network_interfaces[0].primary_v4_address.one_to_one_nat.address // empty')"
+          if [[ "$CUR_IP" != "$STATIC_IP" ]]; then
+            yc compute instance update-network-interface --id "$NEW_VM_ID" --index 0 --nat-address "$STATIC_IP"
+          fi
+          until [[ "$(yc compute instance get --id "$NEW_VM_ID" --format json | jq -r '.network_interfaces[0].primary_v4_address.one_to_one_nat.address // empty')" == "$STATIC_IP" ]]; do
+            echo "waiting IP attach..."; sleep 3;
+          done
+          echo "pub_ip=$STATIC_IP" >> $GITHUB_OUTPUT
+
+      - name: (Optional) Fix Security Group rules
+        if: ${{ inputs.apply_sg_fix }}
+        run: |
+          cat >/tmp/sg_rules.yaml <<'YAML'
+          rules:
+            - direction: INGRESS
+              description: "SSH from office IP"
+              protocol: TCP
+              ports: "22"
+              v4_cidr_blocks:
+                - "87.239.249.137/32"
+            - direction: EGRESS
+              description: "Allow all outbound"
+              protocol: ANY
+              v4_cidr_blocks:
+                - "0.0.0.0/0"
+          YAML
+          yc vpc security-group update-rules --id "$SG_ID" --rules-from-file /tmp/sg_rules.yaml
+          yc vpc security-group get --id "$SG_ID" --format yaml | sed -n '/rules:/,$p'
+
+      - name: (Optional) Try OS Login check
+        if: ${{ inputs.do_verify }}
+        continue-on-error: true
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/job_oslogin ubuntu@${STATIC_IP} "sshd -T | egrep -i 'authorizedkeyscommand|usepam|pubkeyauthentication' && getent passwd ${OSLOGIN_USER} || true" || true
+
+      - name: (Optional) Cleanup old instances
+        if: ${{ inputs.cleanup_old }}
+        run: |
+          IFS=',' read -r -a IDS <<< "${{ inputs.old_instance_ids }}"
+          for iid in "${IDS[@]}"; do
+            iid="$(echo "$iid" | xargs)"
+            if [[ -n "$iid" ]] && yc compute instance get --id "$iid" >/dev/null 2>&1; then
+              echo "Deleting $iid ..."
+              yc compute instance delete --id "$iid"
+            fi
+          done
+
+      - name: Summary
+        run: |
+          echo "=== SUMMARY ==="
+          echo "VM:  ${{ steps.prep.outputs.vm }}"
+          echo "ID:  ${{ steps.vm.outputs.vm_id }}"
+          echo "IP:  ${{ steps.ip.outputs.pub_ip }}"
+          echo "Disk: ${{ steps.prep.outputs.disk }} (id: ${{ steps.disk.outputs.disk_id }})"
+          echo "Snap: ${{ steps.prep.outputs.snap }} (id: ${{ steps.snap.outputs.snap_id }})"
