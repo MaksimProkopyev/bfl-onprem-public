@@ -1,0 +1,17 @@
+name: run-oslogin-reprovision
+on:
+  workflow_dispatch:
+    inputs:
+      apply_sg_fix:   { description: "Fix SG (SSH from 87.239.249.137/32)", type: boolean, default: true }
+      cleanup_old:    { description: "Delete old instances after IP reassign", type: boolean, default: false }
+      old_instance_ids: { description: "Comma-separated old instance IDs", required: true, default: "fhmsrll663cvti0muqic,fhmk821648padghpmjrf" }
+      do_verify:      { description: "Try OS Login check via SSH (best-effort)", type: boolean, default: false }
+jobs:
+  call:
+    uses: MaksimProkopyev/bfl-onprem-public/.github/workflows/oslogin-reprovision.yml@ci/remote-smoke-modes-yc-path-codex-20250829
+    with:
+      apply_sg_fix:   ${{ inputs.apply_sg_fix }}
+      cleanup_old:    ${{ inputs.cleanup_old }}
+      old_instance_ids: ${{ inputs.old_instance_ids }}
+      do_verify:      ${{ inputs.do_verify }}
+    secrets: inherit
