@@ -1,0 +1,30 @@
+name: YC Autopilot Finalize
+on: { workflow_dispatch: {} }
+concurrency: prod-ru-central1-a
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    environment: prod-ru-central1-a
+    steps:
+      - name: Install yc
+        run: |
+          sudo apt-get update -y && sudo apt-get install -y curl
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo 'source "$HOME/yandex-cloud/path.bash.inc"' >> $GITHUB_ENV
+          source "$HOME/yandex-cloud/path.bash.inc"
+      - name: Configure yc
+        env:
+          YC_SA_JSON: ${{ secrets.YC_SA_JSON }}
+          YC_CLOUD_ID: ${{ vars.YC_CLOUD_ID }}
+          YC_FOLDER_ID: ${{ vars.YC_FOLDER_ID }}
+        run: |
+          mkdir -p "$HOME/.config/yandex-cloud"
+          printf '%s' "$YC_SA_JSON" > "$HOME/.config/yandex-cloud/sa.json"
+          yc config profile create ci || true
+          yc config set profile ci
+          yc config set service-account-key "$HOME/.config/yandex-cloud/sa.json"
+          yc config set cloud-id "$YC_CLOUD_ID"
+          yc config set folder-id "$YC_FOLDER_ID"
+      - name: Serial auth → oslogin (back)
+        env: { YC_VM_ID: ${{ vars.YC_VM_ID }} }
+        run: yc compute instance update --id "$YC_VM_ID" --serial-port-settings ssh-authorization=oslogin
