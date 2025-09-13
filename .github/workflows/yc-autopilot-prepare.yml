@@ -1,26 +1,40 @@
 name: YC Autopilot Prepare
-on: { workflow_dispatch: {} }
+on:
+  workflow_dispatch: {}
 concurrency: prod-ru-central1-a
 jobs:
   prepare:
     runs-on: ubuntu-latest
     environment: prod-ru-central1-a
-    permissions: { id-token: write, contents: read }
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+
       - name: Install deps
-        run: sudo apt-get update -y && sudo apt-get install -y jq curl
-      - name: Install yc
+        shell: bash
         run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y jq curl
+
+      - name: Install yc
+        shell: bash
+        run: |
+          set -euo pipefail
           curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
-          echo 'source "$HOME/yandex-cloud/path.bash.inc"' >> $GITHUB_ENV
-          source "$HOME/yandex-cloud/path.bash.inc"
+          echo "$HOME/yandex-cloud/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/yandex-cloud/bin:$PATH"
+          yc --version
+
       - name: Configure yc
+        shell: bash
         env:
           YC_SA_JSON: ${{ secrets.YC_SA_JSON }}
           YC_CLOUD_ID: ${{ vars.YC_CLOUD_ID }}
           YC_FOLDER_ID: ${{ vars.YC_FOLDER_ID }}
         run: |
+          set -euo pipefail
           mkdir -p "$HOME/.config/yandex-cloud"
           printf '%s' "$YC_SA_JSON" > "$HOME/.config/yandex-cloud/sa.json"
           yc config profile create ci || true
@@ -30,26 +44,40 @@ jobs:
           yc config set folder-id "$YC_FOLDER_ID"
           yc components update || true
           yc config list
+
       - name: Autopilot prepare (metadata/sg/ip/serial)
+        shell: bash
         env:
           YC_VM_ID: ${{ vars.YC_VM_ID }}
           YC_SG_ID: ${{ vars.YC_SG_ID }}
           YC_STATIC_IP: ${{ vars.YC_STATIC_IP }}
           YC_ALLOWED_IP: ${{ vars.YC_ALLOWED_IP }}
         run: |
-          set -euxo pipefail
-          yc compute instance add-metadata --id "$YC_VM_ID" --metadata enable-oslogin=true,serial-port-enable=1
+          set -euo pipefail
+          echo "== Set VM metadata =="
+          yc compute instance add-metadata --id "$YC_VM_ID" \
+            --metadata enable-oslogin=true,serial-port-enable=1
+
+          echo "== Ensure RUNNING =="
           st="$(yc compute instance get --id "$YC_VM_ID" --format json | jq -r '.status')"
           if [ "$st" != "RUNNING" ]; then
             yc compute instance start --id "$YC_VM_ID"
-            for i in {1..60}; do sleep 3; st="$(yc compute instance get --id "$YC_VM_ID" --format json | jq -r '.status')"; echo "wait[$i]: $st"; [ "$st" = "RUNNING" ] && break; done
+            for i in {1..60}; do sleep 3; st="$(yc compute instance get --id "$YC_VM_ID" --format json | jq -r '.status')"; echo "  wait[$i]: $st"; [ "$st" = "RUNNING" ] && break; done
           fi
-          yc compute instance update-network-interface --id "$YC_VM_ID" --network-interface-index 0 --security-group-ids "$YC_SG_ID"
+
+          echo "== Bind SG to NIC0 =="
+          yc compute instance update-network-interface --id "$YC_VM_ID" \
+            --network-interface-index 0 --security-group-ids "$YC_SG_ID"
+
+          echo "== Ensure static NAT IP =="
           cur_ip="$(yc compute instance get --id "$YC_VM_ID" --format json | jq -r '.network_interfaces[0].primary_v4_address.one_to_one_nat.address // empty')"
           if [ "$cur_ip" != "$YC_STATIC_IP" ]; then
-            yc compute instance update-network-interface --id "$YC_VM_ID" --network-interface-index 0 --nat-ip-address "$YC_STATIC_IP"
-            for i in {1..20}; do sleep 2; cur_ip="$(yc compute instance get --id "$YC_VM_ID" --format json | jq -r '.network_interfaces[0].primary_v4_address.one_to_one_nat.address // empty')"; echo "nat wait[$i]: $cur_ip"; [ "$cur_ip" = "$YC_STATIC_IP" ] && break; done
+            yc compute instance update-network-interface --id "$YC_VM_ID" \
+              --network-interface-index 0 --nat-ip-address "$YC_STATIC_IP"
+            for i in {1..20}; do sleep 2; cur_ip="$(yc compute instance get --id "$YC_VM_ID" --format json | jq -r '.network_interfaces[0].primary_v4_address.one_to_one_nat.address // empty')"; echo "  nat[$i]: $cur_ip"; [ "$cur_ip" = "$YC_STATIC_IP" ] && break; done
           fi
+
+          echo "== SG rules desired =="
           cat > sg.yaml <<EOF
           ingress:
             - protocol: tcp
@@ -61,12 +89,21 @@ jobs:
               description: "ALL outbound"
               v4_cidr_blocks: ["0.0.0.0/0"]
           EOF
-          if yc vpc security-group update --id "$YC_SG_ID" --rules-from-file sg.yaml >/dev/null 2>&1; then echo "SG updated via file"; else
+          if yc vpc security-group update --id "$YC_SG_ID" --rules-from-file sg.yaml >/dev/null 2>&1; then
+            echo "SG updated via file."
+          else
+            echo "Fallback: delete/add rules."
             sg_json="$(yc vpc security-group get --id "$YC_SG_ID" --format json || echo '{}')"
-            echo "$sg_json" | jq -r '.rules[]?.id' | while read -r rid; do [ -n "$rid" ] && yc vpc security-group delete-rule --id "$YC_SG_ID" --rule-id "$rid" || true; done
-            yc vpc security-group add-rule --id "$YC_SG_ID" --direction ingress --protocol tcp --port 22 --v4-cidr-blocks "$YC_ALLOWED_IP"
-            yc vpc security-group add-rule --id "$YC_SG_ID" --direction egress --protocol any --v4-cidr-blocks "0.0.0.0/0"
+            echo "$sg_json" | jq -r '.rules[]?.id' | while read -r rid; do
+              [ -n "$rid" ] && yc vpc security-group delete-rule --id "$YC_SG_ID" --rule-id "$rid" || true
+            done
+            yc vpc security-group add-rule --id "$YC_SG_ID" \
+              --direction ingress --protocol tcp --port 22 --v4-cidr-blocks "$YC_ALLOWED_IP"
+            yc vpc security-group add-rule --id "$YC_SG_ID" \
+              --direction egress --protocol any --v4-cidr-blocks "0.0.0.0/0"
           fi
           yc vpc security-group get --id "$YC_SG_ID" --format json | jq -r '.rules[] | "\(.direction) \(.protocol) ports=\(.ports // ["any"] | join(",")) cidr=\(.v4_cidr_blocks | join(","))"'
+
+          echo "== Serial → INSTANCE_METADATA =="
           yc compute instance update --id "$YC_VM_ID" --serial-port-settings ssh-authorization=INSTANCE_METADATA
-          echo "Prep DONE. Paste ROOT BLOCK via serial, then run Finalize."
+          echo "Prep DONE"
