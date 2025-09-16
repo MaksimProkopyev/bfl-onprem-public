@@ -1,0 +1,39 @@
+name: linters
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  shell-yaml-actions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: ShellCheck
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y shellcheck
+          git ls-files '*.sh' | xargs -r shellcheck -S warning
+
+      - name: shfmt (diff only)
+        run: |
+          set -euo pipefail
+          curl -fsSL https://github.com/mvdan/sh/releases/latest/download/shfmt_$(uname -s)_$(uname -m).tar.gz \
+            | sudo tar -xz -C /usr/local/bin shfmt || true
+          shfmt -d .
+
+      - name: yamllint
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y yamllint || pipx install yamllint
+          yamllint .
+
+      - name: actionlint
+        uses: rhysd/actionlint@v1
