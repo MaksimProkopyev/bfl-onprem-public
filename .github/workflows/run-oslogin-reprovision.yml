@@ -21,10 +21,13 @@ on:
         default: false
 jobs:
   call:
-    uses: MaksimProkopyev/bfl-onprem-public/.github/workflows/oslogin-reprovision.yml@ci/remote-smoke-modes-yc-path-codex-20250829
+    uses: MaksimProkopyev/bfl-onprem-public/.github/workflows/oslogin-reprovision.yml@{"message":"Not Found","documentation_url":"https://docs.github.com/rest/commits/commits#get-a-commit","status":"404"}
     with:
       apply_sg_fix: ${{ inputs.apply_sg_fix }}
       cleanup_old: ${{ inputs.cleanup_old }}
       old_instance_ids: ${{ inputs.old_instance_ids }}
       do_verify: ${{ inputs.do_verify }}
     secrets: inherit
+concurrency:
+  group: run-oslogin-reprovision-${{ github.ref_name }}
+  cancel-in-progress: false

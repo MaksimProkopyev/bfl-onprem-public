@@ -130,3 +130,6 @@ jobs:
           SID: ${{ steps.sub.outputs.subject_id }}
         run: |
           yc organization-manager os-logins get --organization-id "$ORG" --subject-id "$SID" || true
+concurrency:
+  group: yc-grant-oslogin-${{ github.ref_name }}
+  cancel-in-progress: false
