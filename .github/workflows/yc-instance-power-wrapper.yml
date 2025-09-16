@@ -1,17 +1,33 @@
+---
 name: yc-instance-power-wrapper
 on:
   workflow_dispatch:
     inputs:
-      action:        {description: "start|stop", required: false, default: start, type: string}
-      instance_name: {description: "YC instance name", required: true, type: string}
-      zone:          {description: "zone", required: false, default: ru-central1-a, type: string}
-      folder_id:     {description: "folder override", required: false, default: "", type: string}
+      action:
+        description: start|stop
+        required: false
+        default: start
+        type: string
+      instance_name:
+        description: YC instance name
+        required: true
+        type: string
+      zone:
+        description: zone
+        required: false
+        default: ru-central1-a
+        type: string
+      folder_id:
+        description: folder override
+        required: false
+        default: ""
+        type: string
 jobs:
   call:
     uses: ./.github/workflows/yc-instance-power.yml
     with:
-      action:        ${{ inputs.action }}
+      action: ${{ inputs.action }}
       instance_name: ${{ inputs.instance_name }}
-      zone:          ${{ inputs.zone }}
-      folder_id:     ${{ inputs.folder_id }}
+      zone: ${{ inputs.zone }}
+      folder_id: ${{ inputs.folder_id }}
     secrets: inherit
