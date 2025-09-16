@@ -25,8 +25,8 @@ jobs:
       - name: shfmt (diff only)
         run: |
           set -euo pipefail
-          curl -fsSL https://github.com/mvdan/sh/releases/latest/download/shfmt_$(uname -s)_$(uname -m).tar.gz \
-            | sudo tar -xz -C /usr/local/bin shfmt || true
+          URL="https://github.com/mvdan/sh/releases/latest/download/shfmt_$(uname -s)_$(uname -m).tar.gz"
+          curl -fsSL "$URL" | sudo tar -xz -C /usr/local/bin shfmt || true
           shfmt -d .
 
       - name: yamllint
