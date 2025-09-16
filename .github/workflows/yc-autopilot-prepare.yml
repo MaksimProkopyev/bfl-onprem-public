@@ -1,3 +1,4 @@
+---
 name: YC Autopilot Prepare
 on:
   workflow_dispatch: {}

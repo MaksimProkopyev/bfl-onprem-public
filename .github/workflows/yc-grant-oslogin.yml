@@ -1,12 +1,25 @@
+---
 name: yc-grant-oslogin
 on:
   workflow_call:
     inputs:
-      organization_id: { type: string, required: true }
-      subject_type:    { type: string, required: true }    # user | service_account | user_id
-      subject:         { type: string, required: true }    # email for user | sa id/name | user id
-      os_login:        { type: string, required: false, default: yc-user }
-      uid:             { type: number, required: false, default: 20000 }
+      organization_id:
+        type: string
+        required: true
+      subject_type:
+        type: string
+        required: true
+      subject: # user | service_account | user_id
+        type: string
+        required: true
+      os_login: # email for user | sa id/name | user id
+        type: string
+        required: false
+        default: yc-user
+      uid:
+        type: number
+        required: false
+        default: 20000
 jobs:
   grant:
     runs-on: ubuntu-latest

@@ -1,12 +1,23 @@
+---
 name: yc-instance-power
 on:
   workflow_call:
     inputs:
-      action:        { type: string, required: false, default: start }
-      instance_name: { type: string, required: true }
-      zone:          { type: string, required: false, default: ru-central1-a }
-      folder_id:     { type: string, required: false, default: "" }
-
+      action:
+        type: string
+        required: false
+        default: start
+      instance_name:
+        type: string
+        required: true
+      zone:
+        type: string
+        required: false
+        default: ru-central1-a
+      folder_id:
+        type: string
+        required: false
+        default: ""
 jobs:
   call:
     runs-on: ubuntu-latest
@@ -20,7 +31,6 @@ jobs:
           echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
           export PATH="$HOME/yandex-cloud/bin:$PATH"
           yc -v || true
-
       - name: Auth YC
         env:
           YC_SA_JSON: ${{ secrets.YC_SA_JSON }}
@@ -50,7 +60,6 @@ jobs:
           test -n "${YC_CLOUD_ID:-}"  && yc config set cloud-id  "$YC_CLOUD_ID"  || true
           test -n "${YC_FOLDER_ID:-}" && yc config set folder-id "$YC_FOLDER_ID" || true
           yc config profile list || true
-
       - name: Resolve instance ID
         id: resolve
         run: |
@@ -60,7 +69,6 @@ jobs:
           ID="$(yc compute instance list --format json | jq -r --arg n "$NAME" --arg z "$ZONE" '[.[]|select(.name==$n and .zone_id==$z)][0].id')"
           test -n "$ID" || { echo "Not found: $NAME in $ZONE"; yc compute instance list; exit 1; }
           echo "id=$ID" >> "$GITHUB_OUTPUT"
-
       - name: Power (idempotent start/stop)
         run: |
           set -euo pipefail

@@ -1,3 +1,4 @@
+---
 name: YC Autopilot Finalize
 on:
   workflow_dispatch: {}
