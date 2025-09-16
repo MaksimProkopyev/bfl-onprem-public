@@ -1,0 +1,49 @@
+---
+name: codex-mentions
+on:
+  issue_comment:
+    types: [created, edited]
+  pull_request_target:
+    types: [opened, edited]
+permissions:
+  issues: write
+  pull-requests: write
+concurrency:
+  group: codex-mentions-${{ github.event_name }}-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  tag-codex:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add codex label on @codex mention
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = (context.payload.comment && context.payload.comment.body) ||
+                         (context.payload.pull_request && (context.payload.pull_request.body || "")) || "";
+            const hasCodex = /@codex\b/i.test(body);
+            const isPR = !!context.payload.pull_request || (context.payload.issue && !!context.payload.issue.pull_request);
+            const number = isPR ? (context.payload.pull_request?.number || context.payload.issue.number) : context.payload.issue.number;
+            if (!hasCodex || !number) {
+              core.info("No @codex mention or no issue/PR number; skip");
+              return;
+            }
+            // add label
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: number,
+              labels: ["codex"]
+            }).catch(()=>{});
+            // helper reply (once)
+            const marker = "<!-- codex-helper -->";
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: number, per_page: 50
+            });
+            const already = comments.some(c => (c.body || "").includes(marker));
+            if (!already) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo, issue_number: number,
+                body: `${marker}\nCodex summoned. Make sure the PR contains:\n- \`.codex/brief-*.md\` or description with scope/criteria\n- Green CI (linters)\n- No destructive infra changes`
+              }).catch(()=>{});
+            }
