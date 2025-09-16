@@ -25,7 +25,8 @@ jobs:
       - name: shfmt (diff only)
         run: |
           set -euo pipefail
-          URL="https://github.com/mvdan/sh/releases/latest/download/shfmt_$(uname -s)_$(uname -m).tar.gz"
+          OS="$(uname -s)"; ARCH="$(uname -m)"
+          URL="https://github.com/mvdan/sh/releases/latest/download/shfmt_${OS}_${ARCH}.tar.gz"
           curl -fsSL "$URL" | sudo tar -xz -C /usr/local/bin shfmt || true
           shfmt -d .
 
@@ -36,4 +37,17 @@ jobs:
           yamllint .
 
       - name: actionlint
-        uses: rhysd/actionlint@v1
+        run: |
+          set -euo pipefail
+          OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          ARCH="$(uname -m)"
+          case "$ARCH" in
+            x86_64|amd64) ARCH="amd64" ;;
+            aarch64|arm64) ARCH="arm64" ;;
+          esac
+          URL="https://github.com/rhysd/actionlint/releases/latest/download/actionlint_${OS}_${ARCH}.tar.gz"
+          curl -fsSL "$URL" | sudo tar -xz -C /usr/local/bin actionlint || {
+            echo "(fallback) install via go"; \
+            sudo apt-get update -y && sudo apt-get install -y golang-go || true; \
+            GOBIN=/usr/local/bin go install github.com/rhysd/actionlint/cmd/actionlint@latest || true; }
+          actionlint -oneline
