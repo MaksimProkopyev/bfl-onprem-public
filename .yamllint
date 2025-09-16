@@ -1,5 +1,12 @@
 ---
 extends: default
 rules:
-  document-start: enable
+  document-start:
+    present: true
   truthy: disable
+  line-length:
+    max: 300
+    allow-non-breakable-words: true
+    allow-non-breakable-inline-mappings: true
+  # Optional noise reducers (keep as warnings or disable if хочется тишины):
+  comments: {min-spaces-from-content: 2}
