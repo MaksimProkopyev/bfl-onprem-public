@@ -13,6 +13,7 @@ jobs:
     steps:
       - name: Show inputs (debug)
         run: |
+          # shellcheck disable=SC2086
           echo "ORG=${{ inputs.organization_id }}"
           echo "TYPE=${{ inputs.subject_type }}"
           echo "SUBJ=${{ inputs.subject }}"
