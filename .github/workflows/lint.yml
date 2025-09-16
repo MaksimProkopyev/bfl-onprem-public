@@ -25,15 +25,30 @@ jobs:
       - name: shfmt (diff only)
         run: |
           set -euo pipefail
-          OS="$(uname -s)"; ARCH="$(uname -m)"
-          URL="https://github.com/mvdan/sh/releases/latest/download/shfmt_${OS}_${ARCH}.tar.gz"
-          curl -fsSL "$URL" | sudo tar -xz -C /usr/local/bin shfmt || true
+          if ! command -v shfmt >/dev/null 2>&1; then
+            if sudo apt-get update -y && sudo apt-get install -y shfmt; then
+              echo "shfmt installed via apt"
+            else
+              echo "apt shfmt not available, fallback to direct binary"
+              OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+              ARCH="$(uname -m)"
+              case "$ARCH" in
+                x86_64|amd64) ARCH="x86_64" ;;
+                aarch64|arm64) ARCH="arm64" ;;
+              esac
+              URL="https://github.com/mvdan/sh/releases/latest/download/shfmt_${OS}_${ARCH}"
+              curl -fsSL "$URL" -o /tmp/shfmt
+              sudo install -m 0755 /tmp/shfmt /usr/local/bin/shfmt
+              echo "shfmt installed via curl binary"
+            fi
+          fi
           shfmt -d .
 
       - name: yamllint
         run: |
           set -euo pipefail
-          sudo apt-get install -y yamllint || pipx install yamllint
+          sudo apt-get install -y yamllint || python3 -m pip install --user --no-cache-dir yamllint
+          export PATH="$HOME/.local/bin:$PATH"
           yamllint .
 
       - name: actionlint
