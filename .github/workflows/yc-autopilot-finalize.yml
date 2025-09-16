@@ -17,7 +17,6 @@ jobs:
           echo "$HOME/yandex-cloud/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/yandex-cloud/bin:$PATH"
           yc --version
-
       - name: Configure yc
         shell: bash
         env:
@@ -33,7 +32,6 @@ jobs:
           yc config set service-account-key "$HOME/.config/yandex-cloud/sa.json"
           yc config set cloud-id "$YC_CLOUD_ID"
           yc config set folder-id "$YC_FOLDER_ID"
-
       - name: Serial auth → oslogin (back)
         shell: bash
         env:
@@ -42,3 +40,5 @@ jobs:
           set -euo pipefail
           yc compute instance update --id "$YC_VM_ID" --serial-port-settings ssh-authorization=oslogin
           echo "Serial auth set back to oslogin."
+permissions:
+  contents: read

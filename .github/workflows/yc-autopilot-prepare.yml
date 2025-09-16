@@ -10,14 +10,12 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-
       - name: Install deps
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -y
           sudo apt-get install -y jq curl
-
       - name: Install yc
         shell: bash
         run: |
@@ -26,7 +24,6 @@ jobs:
           echo "$HOME/yandex-cloud/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/yandex-cloud/bin:$PATH"
           yc --version
-
       - name: Configure yc
         shell: bash
         env:
@@ -44,7 +41,6 @@ jobs:
           yc config set folder-id "$YC_FOLDER_ID"
           yc components update || true
           yc config list
-
       - name: Autopilot prepare (metadata/sg/ip/serial)
         shell: bash
         env:
@@ -107,3 +103,5 @@ jobs:
           echo "== Serial → INSTANCE_METADATA =="
           yc compute instance update --id "$YC_VM_ID" --serial-port-settings ssh-authorization=INSTANCE_METADATA
           echo "Prep DONE"
+permissions:
+  contents: read
