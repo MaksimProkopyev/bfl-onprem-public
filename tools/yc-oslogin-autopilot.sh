@@ -3,7 +3,7 @@
 set -eo pipefail
 log() { echo "[INFO] $*"; }
 warn() { echo "[WARN] $*" >&2; }
-have() { command -v "$1" > /dev/null 2>&1; }
+have() { command -v "$1" >/dev/null 2>&1; }
 JQ() { if have jq; then jq "$@"; else cat; fi; }
 
 # Fixed inputs from brief
@@ -19,31 +19,31 @@ POSIX="${POSIX:-ivmsu}"
 ALLOW_FROM="${ALLOW_FROM:-87.239.249.137/32}"
 
 echo "== BFL OS Login Autopilot =="
-yc --version 2> /dev/null | head -1 || true
+yc --version 2>/dev/null | head -1 || true
 
-sg_id_flag() { yc vpc security-group add-rule --help 2> /dev/null | grep -q -- '--security-group-id' && echo "--security-group-id" || echo "--id"; }
-ports_flag() { yc vpc security-group add-rule --help 2> /dev/null | grep -q -- '--ports' && echo "--ports" || echo "--port"; }
+sg_id_flag() { yc vpc security-group add-rule --help 2>/dev/null | grep -q -- '--security-group-id' && echo "--security-group-id" || echo "--id"; }
+ports_flag() { yc vpc security-group add-rule --help 2>/dev/null | grep -q -- '--ports' && echo "--ports" || echo "--port"; }
 
 has_ingress22() {
-  yc vpc security-group get --id "$SG_ID" --format json \
-    | jq -e --arg ip "$ALLOW_FROM" '
+  yc vpc security-group get --id "$SG_ID" --format json |
+    jq -e --arg ip "$ALLOW_FROM" '
       ((.ingress_rules // []) | map(
         select((.protocol // "")=="tcp")
         | (if has("port") then .port==22 else ((.from_port // 0)<=22 and 22<=(.to_port // 0)) end)
         | ((.cidr_blocks // .v4_cidr_blocks // []) + (.src_cidr_blocks // [])) as $cidrs
         | ($cidrs | index($ip)) != null
       )) | any
-    ' > /dev/null 2>&1
+    ' >/dev/null 2>&1
 }
 has_egress_any() {
-  yc vpc security-group get --id "$SG_ID" --format json \
-    | jq -e '
+  yc vpc security-group get --id "$SG_ID" --format json |
+    jq -e '
       ((.egress_rules // []) | map(
         (.protocol // "any")=="any"
         | ((.cidr_blocks // .v4_cidr_blocks // []) + (.dst_cidr_blocks // [])) as $cidrs
         | ($cidrs | index("0.0.0.0/0")) != null
       )) | any
-    ' > /dev/null 2>&1
+    ' >/dev/null 2>&1
 }
 get_meta() { yc compute instance get --id "$VM_ID" --format json | JQ -r ".metadata[\"$1\"] // \"\""; }
 wait_meta() {
@@ -61,14 +61,14 @@ wait_meta() {
 
 # 1) Roles (idempotent add; ignore 409)
 log "Grant roles on folder+instance"
-yc resource-manager folder add-access-binding --id "$FOLDER_ID" --role compute.osLogin --subject userAccount:"$USER_ID" > /dev/null 2>&1 || true
-yc resource-manager folder add-access-binding --id "$FOLDER_ID" --role compute.osAdminLogin --subject userAccount:"$USER_ID" > /dev/null 2>&1 || true
-yc compute instance add-access-binding --id "$VM_ID" --role compute.osLogin --subject userAccount:"$USER_ID" > /dev/null 2>&1 || true
-yc compute instance add-access-binding --id "$VM_ID" --role compute.osAdminLogin --subject userAccount:"$USER_ID" > /dev/null 2>&1 || true
+yc resource-manager folder add-access-binding --id "$FOLDER_ID" --role compute.osLogin --subject userAccount:"$USER_ID" >/dev/null 2>&1 || true
+yc resource-manager folder add-access-binding --id "$FOLDER_ID" --role compute.osAdminLogin --subject userAccount:"$USER_ID" >/dev/null 2>&1 || true
+yc compute instance add-access-binding --id "$VM_ID" --role compute.osLogin --subject userAccount:"$USER_ID" >/dev/null 2>&1 || true
+yc compute instance add-access-binding --id "$VM_ID" --role compute.osAdminLogin --subject userAccount:"$USER_ID" >/dev/null 2>&1 || true
 
 # 2) Metadata (legacy-safe: update/add, then remove+add if needed)
 log "Set metadata: enable-oslogin=true, serial-port-enable=1, ssh-authorization=oslogin"
-if yc compute instance update --help 2> /dev/null | grep -q -- '--metadata'; then
+if yc compute instance update --help 2>/dev/null | grep -q -- '--metadata'; then
   yc compute instance update --id "$VM_ID" --metadata enable-oslogin=true || true
   yc compute instance update --id "$VM_ID" --metadata serial-port-enable=1 || true
   yc compute instance update --id "$VM_ID" --metadata ssh-authorization=oslogin || true
@@ -79,7 +79,7 @@ else
 fi
 if ! wait_meta; then
   warn "metadata not reflected — try remove+add"
-  yc compute instance remove-metadata --id "$VM_ID" --keys enable-oslogin,serial-port-enable,ssh-authorization > /dev/null 2>&1 || true
+  yc compute instance remove-metadata --id "$VM_ID" --keys enable-oslogin,serial-port-enable,ssh-authorization >/dev/null 2>&1 || true
   yc compute instance add-metadata --id "$VM_ID" --metadata enable-oslogin=true
   yc compute instance add-metadata --id "$VM_ID" --metadata serial-port-enable=1
   yc compute instance add-metadata --id "$VM_ID" --metadata ssh-authorization=oslogin
