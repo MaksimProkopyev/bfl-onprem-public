@@ -1,158 +1,61 @@
-name: codex-cloud
+name: Codex↔Cloud Connector
+
 on:
   workflow_dispatch:
     inputs:
-      vm_id:   { description: "YC VM ID", required: false, type: string }
-      vm_name: { description: "YC VM name", required: false, type: string }
-      allow_from: { description: "CIDR (e.g. 203.0.113.1/32) for ssh 22 rule (optional)", required: false, type: string }
+      vm:
+        description: "VM ID"
+        required: true
+      allow_from:
+        description: "Optional IP or CIDR /32"
+        required: false
+      dry_run:
+        description: "true|false (default true)"
+        required: false
+        default: "true"
   issue_comment:
-    types: [created]
+    types: [created, edited]
+
 permissions:
-  contents: read
+  actions: write
   issues: write
+  pull-requests: write
+  contents: read
+  id-token: write
+
 concurrency:
-  group: codex-cloud
+  group: codex-cloud-${{ github.event.issue.number || github.run_id }}
   cancel-in-progress: false
+
 jobs:
-  fix-metadata:
+  codex-cloud:
     if: >
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch') ||
       (github.event_name == 'issue_comment' &&
-       contains(github.event.comment.body, '@codex cloud fix-metadata') &&
-       (github.event.comment.author_association == 'OWNER' ||
-        github.event.comment.author_association == 'MEMBER' ||
-        github.event.comment.author_association == 'COLLABORATOR'))
+       github.event.issue.pull_request != null &&
+       contains(github.event.comment.body, '@codex') &&
+       contains(github.event.comment.body, 'cloud') &&
+       contains(github.event.comment.body, 'fix-metadata'))
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.issue.number }}
+      COMMENT_BODY: ${{ github.event.comment.body }}
+      DISPATCH_VM: ${{ inputs.vm }}
+      DISPATCH_ALLOW_FROM: ${{ inputs.allow_from }}
+      DISPATCH_DRY_RUN: ${{ inputs.dry_run }}
+      YC_CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
+      YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+      YC_SA_KEY_JSON: ${{ secrets.YC_SERVICE_ACCOUNT_KEY_JSON }}
+      YC_SG_ID: ${{ secrets.YC_SG_ID }}
     steps:
-      - name: Checkout (shallow)
+      - name: Checkout
         uses: actions/checkout@v4
-        with: { fetch-depth: 1 }
 
-      - name: Install YC CLI
-        run: |
-          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
-          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
-          yc --version
-
-      - name: Configure YC (service account)
-        env:
-          YC_IAM_KEY_JSON: ${{ secrets.YC_IAM_KEY_JSON }}
-          YC_CLOUD_ID:     ${{ secrets.YC_CLOUD_ID }}
-          YC_FOLDER_ID:    ${{ secrets.YC_FOLDER_ID }}
-        run: |
-          printf '%s' "${YC_IAM_KEY_JSON}" > key.json
-          yc config profile create codex >/dev/null 2>&1 || true
-          yc config set service-account-key key.json
-          yc config set cloud-id "${YC_CLOUD_ID}"
-          yc config set folder-id "${YC_FOLDER_ID}"
-          yc config list
-
-      - name: Resolve inputs
-        id: args
-        env:
-          BODY: ${{ github.event.comment.body }}
-        run: |
-          vm_id="${{ github.event.inputs.vm_id }}"
-          vm_name="${{ github.event.inputs.vm_name }}"
-          allow_from="${{ github.event.inputs.allow_from }}"
-          if [[ -z "$vm_id" && -n "$BODY" ]]; then
-            vm_id="$(printf '%s\n' "$BODY" | sed -nE 's/.*vm=([a-z0-9-]+).*/\1/p' | head -n1)"
-            vm_name="$(printf '%s\n' "$BODY" | sed -nE 's/.*vmname=([^ ]+).*/\1/p' | head -n1)"
-            allow_from="$(printf '%s\n' "$BODY" | sed -nE 's/.*allow_from=([^ ]+).*/\1/p' | head -n1)"
-          fi
-          echo "vm_id=$vm_id"       >> "$GITHUB_OUTPUT"
-          echo "vm_name=$vm_name"   >> "$GITHUB_OUTPUT"
-          echo "allow_from=$allow_from" >> "$GITHUB_OUTPUT"
-          echo "Inputs: vm_id=$vm_id vm_name=$vm_name allow_from=$allow_from"
-
-      - name: Resolve VM object
-        id: vm
-        env:
-          VM_ID:   ${{ steps.args.outputs.vm_id }}
-          VM_NAME: ${{ steps.args.outputs.vm_name }}
-          ALLOW:   ${{ steps.args.outputs.allow_from }}
-          ALLOWLIST: ${{ secrets.YC_VM_ALLOWLIST }}
+      - name: Run connector
+        shell: bash
         run: |
           set -euo pipefail
-          vm_json=""
-          if [[ -n "$VM_ID" ]]; then
-            vm_json="$(yc compute instance get --id "$VM_ID" --format json)"
-          elif [[ -n "$VM_NAME" ]]; then
-            vm_json="$(yc compute instance get --name "$VM_NAME" --format json)"
-          else
-            echo "No vm_id/vm_name supplied"; exit 1
-          fi
-          id="$(jq -r '.id' <<<"$vm_json")"
-          name="$(jq -r '.name' <<<"$vm_json")"
-          zone="$(jq -r '.zone_id' <<<"$vm_json")"
-          status="$(jq -r '.status' <<<"$vm_json")"
-          if [[ -n "$ALLOWLIST" ]]; then
-            ok="no"
-            IFS=',' read -r -a arr <<< "$ALLOWLIST"
-            for v in "${arr[@]}"; do [[ "$v" == "$id" || "$v" == "$name" ]] && ok="yes"; done
-            [[ "$ok" == "yes" ]] || { echo "VM not in allowlist"; exit 1; }
-          fi
-          echo "id=$id"     >> "$GITHUB_OUTPUT"
-          echo "name=$name" >> "$GITHUB_OUTPUT"
-          echo "zone=$zone" >> "$GITHUB_OUTPUT"
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          echo "Target VM: $name ($id) @ $zone status=$status"
-
-      - name: Enable metadata (OS Login/Serial/SSH auth) — idempotent
-        env:
-          VM_ID: ${{ steps.vm.outputs.id }}
-        run: |
-          set -euo pipefail
-          yc compute instance add-metadata --id "$VM_ID" \
-            --metadata enable-oslogin=true,serial-port-enable=true,ssh-authorization=oslogin
-          for i in {1..8}; do
-            j="$(yc compute instance get --id "$VM_ID" --format json)"
-            os="$(jq -r '.metadata["enable-oslogin"] // "false"' <<<"$j")"
-            sp="$(jq -r '.metadata["serial-port-enable"] // "false"' <<<"$j")"
-            au="$(jq -r '.metadata["ssh-authorization"] // "none"' <<<"$j")"
-            echo "meta: oslogin=$os serial=$sp ssh-authorization=$au"
-            [[ "$os" == "true" && "$sp" == "true" && "$au" == "oslogin" ]] && break
-            sleep 2
-          done
-
-      - name: Optional: ensure SG rule 22/tcp from allow_from
-        if: ${{ steps.args.outputs.allow_from != '' }}
-        env:
-          VM_ID: ${{ steps.vm.outputs.id }}
-          ALLOW: ${{ steps.args.outputs.allow_from }}
-        run: |
-          set -euo pipefail
-          ni="$(yc compute instance get --id "$VM_ID" --format json | jq -r '.network_interfaces[0]')"
-          sgid="$(jq -r '.security_group_ids[0] // empty' <<<"$ni")"
-          [[ -n "$sgid" ]] || { echo "No security group on NIC0 — skip SG change"; exit 0; }
-          j="$(yc vpc security-group get --id "$sgid" --format json)"
-          ok="$(jq -r --arg a "$ALLOW" '
-            [ .ingress_rules[]? |
-              (.protocol=="TCP") and
-              (
-                ((.port // 0)==22) or (((.from_port // 0)<=22 and 22<=(.to_port // 0)))
-              ) and
-              ((.cidr_blocks.v4_cidr_blocks // []) | index($a))
-            ] | any
-          ' <<<"$j")"
-          if [[ "$ok" == "true" ]]; then
-            echo "SG already allows 22/tcp from $ALLOW"
-          else
-            yc vpc security-group add-rule --id "$sgid" \
-              --direction ingress --protocol tcp --port 22 --cidr-blocks "$ALLOW"
-            echo "SG rule added: 22/tcp from $ALLOW"
-          fi
-
-      - name: Comment back summary
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          VM_NAME: ${{ steps.vm.outputs.name }}
-          VM_ID:   ${{ steps.vm.outputs.id }}
-        run: |
-          body="Cloud: metadata set for ${VM_NAME} (${VM_ID}). OS Login/Serial/SSH auth enabled. $([[ -n "${{ steps.args.outputs.allow_from }}" ]] && echo "SSH 22 allowed from ${{ steps.args.outputs.allow_from }}.")"
-          if [[ -n "$ISSUE_NUMBER" ]]; then
-            gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/comments" -f body="$body" >/dev/null
-          else
-            echo "$body"
-          fi
+          chmod +x .github/scripts/codex-cloud.sh
+          .github/scripts/codex-cloud.sh

@@ -1,0 +1,6 @@
+#cloud-config
+# Minimal placeholder. Extend as needed.
+fqdn: bfl-vm
+ssh_pwauth: false
+disable_root: true
+packages: []
