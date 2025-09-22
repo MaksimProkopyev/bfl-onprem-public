@@ -45,7 +45,6 @@ jobs:
       DISPATCH_VM: ${{ inputs.vm }}
       DISPATCH_ALLOW_FROM: ${{ inputs.allow_from }}
       DISPATCH_DRY_RUN: ${{ inputs.dry_run }}
-      # Yandex Cloud secrets (optional for live run)
       YC_CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
       YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
       YC_SA_KEY_JSON: ${{ secrets.YC_SERVICE_ACCOUNT_KEY_JSON }}
@@ -53,13 +52,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Install YC CLI
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
-          echo "${HOME}/yandex-cloud/bin" >> $GITHUB_PATH
 
       - name: Run connector
         shell: bash
